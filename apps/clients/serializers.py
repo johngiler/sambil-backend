@@ -1,0 +1,81 @@
+from rest_framework import serializers
+
+from apps.clients.models import Client, ClientStatus
+
+
+class ClientSerializer(serializers.ModelSerializer):
+    linked_user_ids = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Client
+        fields = (
+            "id",
+            "linked_user_ids",
+            "company_name",
+            "rif",
+            "contact_name",
+            "email",
+            "phone",
+            "address",
+            "city",
+            "notes",
+            "status",
+        )
+        read_only_fields = ("status", "linked_user_ids")
+
+    def get_linked_user_ids(self, obj):
+        return sorted(obj.member_profiles.values_list("user_id", flat=True))
+
+
+class ClientAdminSerializer(serializers.ModelSerializer):
+    """Admin: datos de empresa. Usuarios enlazados vía UserProfile.client (varios por empresa)."""
+
+    linked_user_ids = serializers.SerializerMethodField()
+    linked_usernames = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Client
+        fields = (
+            "id",
+            "linked_user_ids",
+            "linked_usernames",
+            "company_name",
+            "rif",
+            "contact_name",
+            "email",
+            "phone",
+            "address",
+            "city",
+            "notes",
+            "status",
+            "cover_image",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = ("linked_user_ids", "linked_usernames", "created_at", "updated_at")
+        extra_kwargs = {"cover_image": {"required": False, "allow_null": True}}
+
+    def get_linked_user_ids(self, obj):
+        return sorted(obj.member_profiles.values_list("user_id", flat=True))
+
+    def get_linked_usernames(self, obj):
+        profiles = obj.member_profiles.select_related("user").order_by("user__username")
+        return [p.user.username for p in profiles]
+
+
+class MyCompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Client
+        fields = ("company_name", "rif", "contact_name", "email", "phone", "address", "city")
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        c = Client.objects.create(
+            status=ClientStatus.PENDING,
+            **validated_data,
+        )
+        prof = request.user.profile
+        prof.client = c
+        prof.save(update_fields=["client"])
+        return c

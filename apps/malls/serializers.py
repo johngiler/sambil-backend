@@ -1,0 +1,63 @@
+from rest_framework import serializers
+
+from apps.malls.models import ShoppingCenter
+
+
+class ShoppingCenterSerializer(serializers.ModelSerializer):
+    display_title = serializers.SerializerMethodField(read_only=True)
+    marketplace_enabled = serializers.SerializerMethodField(read_only=True)
+    cover_image_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ShoppingCenter
+        fields = (
+            "id",
+            "name",
+            "code",
+            "city",
+            "district",
+            "address",
+            "country",
+            "phone",
+            "contact_email",
+            "website",
+            "description",
+            "cover_image",
+            "cover_image_url",
+            "on_homepage",
+            "listing_order",
+            "marketplace_catalog_enabled",
+            "display_title",
+            "marketplace_enabled",
+            "is_active",
+            "created_at",
+            "updated_at",
+        )
+        extra_kwargs = {
+            "cover_image": {"required": False, "allow_null": True},
+            "district": {"required": False, "allow_blank": True},
+            "created_at": {"read_only": True},
+            "updated_at": {"read_only": True},
+        }
+
+    def get_display_title(self, obj):
+        city = (obj.city or "").strip()
+        district = (obj.district or "").strip()
+        if district and city:
+            return f"{city.upper()} — {district.upper()}"
+        if city:
+            return city.upper()
+        return obj.name
+
+    def get_marketplace_enabled(self, obj):
+        """Alias de `marketplace_catalog_enabled` para el front (tarjetas «Disponible»)."""
+        return bool(obj.marketplace_catalog_enabled)
+
+    def get_cover_image_url(self, obj):
+        if not obj.cover_image:
+            return None
+        request = self.context.get("request")
+        url = obj.cover_image.url
+        if request:
+            return request.build_absolute_uri(url)
+        return url

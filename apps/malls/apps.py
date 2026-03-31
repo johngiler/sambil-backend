@@ -1,0 +1,8 @@
+from django.apps import AppConfig
+
+
+class MallsConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.malls"
+    label = "malls"
+    verbose_name = "Shopping malls"

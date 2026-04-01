@@ -12,6 +12,8 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "django-insecure-dev-only")
 DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() in ("1", "true", "yes")
+# development | production — para logging, checks y futuras reglas (DEBUG sigue viniendo de DJANGO_DEBUG).
+DJANGO_ENV = os.environ.get("DJANGO_ENV", "development").strip().lower()
 ALLOWED_HOSTS = [
     h.strip()
     for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
@@ -100,6 +102,7 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -117,6 +120,11 @@ else:
         ).split(",")
         if o.strip()
     ]
+    _csrf_origins = os.environ.get("CSRF_TRUSTED_ORIGINS", "")
+    if _csrf_origins.strip():
+        CSRF_TRUSTED_ORIGINS = [
+            o.strip() for o in _csrf_origins.split(",") if o.strip()
+        ]
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -133,3 +141,9 @@ SIMPLE_JWT = {
     "TOKEN_OBTAIN_SERIALIZER": "apps.users.serializers.CustomTokenObtainPairSerializer",
     "TOKEN_REFRESH_SERIALIZER": "apps.users.serializers.CustomTokenRefreshSerializer",
 }
+
+# Overrides locales / servidor: `config/local_settings.py` (no versionar).
+try:
+    from .local_settings import *  # noqa: F403
+except ImportError:
+    pass

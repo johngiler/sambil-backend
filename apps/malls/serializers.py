@@ -59,5 +59,9 @@ class ShoppingCenterSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         url = obj.cover_image.url
         if request:
-            return request.build_absolute_uri(url)
+            uri = request.build_absolute_uri(url)
+            # Tras Nginx+TLS, a veces `build_absolute_uri` sigue en http:// → contenido mixto en el SPA.
+            if uri.startswith("http://") and request.META.get("HTTP_X_FORWARDED_PROTO", "").lower() == "https":
+                return "https://" + uri[7:]
+            return uri
         return url

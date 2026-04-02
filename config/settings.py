@@ -1,5 +1,5 @@
 """
-Django settings — Sambil Advertising Marketplace API.
+Django settings — API del marketplace multi-tenant (Publivalla).
 """
 import os
 from datetime import timedelta
@@ -19,6 +19,11 @@ ALLOWED_HOSTS = [
     for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if h.strip()
 ]
+# En DEBUG: subdominios multi-tenant local sin listar cada slug en DJANGO_ALLOWED_HOSTS.
+if DEBUG:
+    for _suffix in (".localhost", ".lvh.me"):
+        if _suffix not in ALLOWED_HOSTS:
+            ALLOWED_HOSTS.append(_suffix)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -31,6 +36,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "corsheaders",
     "apps.common.apps.CommonConfig",
+    "apps.workspaces.apps.WorkspacesConfig",
     "apps.users.apps.UsersConfig",
     "apps.malls.apps.MallsConfig",
     "apps.ad_spaces.apps.AdSpacesConfig",
@@ -45,6 +51,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "apps.workspaces.middleware.TenantMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -107,6 +114,13 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# SaaS: slug del owner cuando no hay otro contexto (subdominio / header) en la petición.
+DEFAULT_WORKSPACE_SLUG = os.environ.get("DEFAULT_WORKSPACE_SLUG", "sambil").strip().lower() or "sambil"
+# Dominio apex del producto (ej. publivalla.com). `{slug}.TENANT_BASE_DOMAIN` identifica al owner.
+# El API puede ser siempre api.publivalla.com; el tenant se infiere por Origin/Referer del SPA.
+# Vacío en local = un solo tenant vía DEFAULT_WORKSPACE_SLUG (mismo slug que en BD).
+TENANT_BASE_DOMAIN = os.environ.get("TENANT_BASE_DOMAIN", "").strip().lower()
+
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
     CORS_ALLOWED_ORIGINS = []
@@ -128,7 +142,7 @@ else:
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "apps.users.authentication.TenantJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.AllowAny",),
     "DEFAULT_PAGINATION_CLASS": "apps.common.pagination.StandardPagination",

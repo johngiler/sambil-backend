@@ -1,32 +1,18 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from rest_framework import generics, status
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.users.models import UserProfile
-from apps.users.permissions import IsAdminRole
 from apps.users.serializers import (
-    RegisterSerializer,
     UserMeSerializer,
     UserMeUpdateSerializer,
-    UserSerializer,
 )
 
 User = get_user_model()
-
-
-class RegisterView(generics.CreateAPIView):
-    serializer_class = RegisterSerializer
-    permission_classes = [IsAuthenticated, IsAdminRole]
-
-    def create(self, request, *args, **kwargs):
-        ser = self.get_serializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        user = ser.save()
-        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 
 class MeView(APIView):
@@ -34,7 +20,7 @@ class MeView(APIView):
 
     def get(self, request):
         user = User.objects.select_related("profile", "profile__client").get(pk=request.user.pk)
-        return Response(UserMeSerializer(user).data)
+        return Response(UserMeSerializer(user, context={"request": request}).data)
 
     def patch(self, request):
         user = User.objects.select_related("profile", "profile__client").get(pk=request.user.pk)
@@ -55,7 +41,7 @@ class MeView(APIView):
 
         user.refresh_from_db()
         user = User.objects.select_related("profile").get(pk=user.pk)
-        return Response(UserMeSerializer(user).data)
+        return Response(UserMeSerializer(user, context={"request": request}).data)
 
 
 class MePasswordView(APIView):

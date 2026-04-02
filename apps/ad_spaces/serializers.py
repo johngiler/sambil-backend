@@ -1,5 +1,7 @@
+from django.utils import timezone
 from rest_framework import serializers
 
+from apps.ad_spaces.availability_calendar import year_months_occupied
 from apps.ad_spaces.models import AdSpace
 from apps.catalog_access import shopping_center_allows_public_catalog
 
@@ -12,6 +14,8 @@ class AdSpaceSerializer(serializers.ModelSerializer):
         source="shopping_center.name", read_only=True
     )
     catalog_public = serializers.SerializerMethodField(read_only=True)
+    availability_year = serializers.SerializerMethodField(read_only=True)
+    months_occupied = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = AdSpace
@@ -22,6 +26,8 @@ class AdSpaceSerializer(serializers.ModelSerializer):
             "shopping_center_code",
             "shopping_center_name",
             "catalog_public",
+            "availability_year",
+            "months_occupied",
             "type",
             "title",
             "description",
@@ -45,3 +51,10 @@ class AdSpaceSerializer(serializers.ModelSerializer):
 
     def get_catalog_public(self, obj):
         return shopping_center_allows_public_catalog(obj.shopping_center)
+
+    def get_availability_year(self, obj):
+        return timezone.now().date().year
+
+    def get_months_occupied(self, obj):
+        y = self.get_availability_year(obj)
+        return year_months_occupied(obj.pk, y)

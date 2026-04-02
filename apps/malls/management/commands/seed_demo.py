@@ -4,13 +4,14 @@ from django.core.management.base import BaseCommand
 
 from apps.ad_spaces.models import AdSpace, AdSpaceStatus, AdSpaceType
 from apps.malls.models import ShoppingCenter
+from apps.workspaces.utils import get_default_workspace
 
 # Centros en portada (orden + datos dummy). SCC/SLC tienen catálogo público (`marketplace_catalog_enabled`).
 CENTERS_SEED = [
     (
         "SCC",
         {
-            "name": "Sambil Caracas",
+            "name": "Centro Caracas (Chacao)",
             "city": "Caracas",
             "district": "Chacao",
             "address": "Av. Libertador, Chacao",
@@ -20,7 +21,7 @@ CENTERS_SEED = [
     (
         "SLC",
         {
-            "name": "Sambil La Candelaria",
+            "name": "Centro La Candelaria",
             "city": "Caracas",
             "district": "La Candelaria",
             "address": "La Candelaria, Caracas",
@@ -30,7 +31,7 @@ CENTERS_SEED = [
     (
         "SLV",
         {
-            "name": "Sambil Valencia",
+            "name": "Centro Valencia",
             "city": "Valencia",
             "district": "San Diego",
             "address": "Valencia — San Diego",
@@ -40,7 +41,7 @@ CENTERS_SEED = [
     (
         "SMZ",
         {
-            "name": "Sambil Maracaibo",
+            "name": "Centro Maracaibo",
             "city": "Maracaibo",
             "district": "",
             "address": "Maracaibo",
@@ -50,7 +51,7 @@ CENTERS_SEED = [
     (
         "SMP",
         {
-            "name": "Sambil Margarita",
+            "name": "Centro Margarita",
             "city": "Porlamar",
             "district": "Margarita",
             "address": "Porlamar, Margarita",
@@ -60,7 +61,7 @@ CENTERS_SEED = [
     (
         "SBQ",
         {
-            "name": "Sambil Barquisimeto",
+            "name": "Centro Barquisimeto",
             "city": "Barquisimeto",
             "district": "",
             "address": "Barquisimeto",
@@ -70,7 +71,7 @@ CENTERS_SEED = [
     (
         "SPO",
         {
-            "name": "Sambil Puerto Ordaz",
+            "name": "Centro Puerto Ordaz",
             "city": "Puerto Ordaz",
             "district": "",
             "address": "Puerto Ordaz",
@@ -80,7 +81,7 @@ CENTERS_SEED = [
     (
         "SMD",
         {
-            "name": "Sambil Mérida",
+            "name": "Centro Mérida",
             "city": "Mérida",
             "district": "",
             "address": "Mérida",
@@ -94,11 +95,20 @@ class Command(BaseCommand):
     help = "Carga centros dummy para la portada y tomas demo (SCC / SLC)."
 
     def handle(self, *args, **options):
+        ws = get_default_workspace()
+        if not ws:
+            self.stderr.write(
+                self.style.ERROR(
+                    "No hay workspace activo. Crea un Workspace (p. ej. slug «sambil») o DEFAULT_WORKSPACE_SLUG."
+                )
+            )
+            return
         for code, fields in CENTERS_SEED:
             ShoppingCenter.objects.update_or_create(
                 code=code,
                 defaults={
                     **fields,
+                    "workspace": ws,
                     "on_homepage": True,
                     "country": "Venezuela",
                     "marketplace_catalog_enabled": code in ("SCC", "SLC"),

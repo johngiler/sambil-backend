@@ -87,7 +87,12 @@ class UserAdminCreateSerializer(serializers.Serializer):
     def validate_client_id(self, value):
         if value is None:
             return value
-        if not Client.objects.filter(pk=value).exists():
+        request = self.context.get("request")
+        tw = self.context.get("tenant_workspace")
+        qs = Client.objects.filter(pk=value)
+        if tw is not None and request is not None and not request.user.is_superuser:
+            qs = qs.filter(workspace=tw)
+        if not qs.exists():
             raise serializers.ValidationError("Empresa (cliente) no encontrada.")
         return value
 
@@ -98,12 +103,24 @@ class UserAdminCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"client_id": "Solo los usuarios con rol «Cliente marketplace» pueden vincularse a una empresa."}
             )
+        request = self.context.get("request")
+        tw = self.context.get("tenant_workspace")
+        if (
+            role == UserProfile.Role.ADMIN
+            and tw is None
+            and request is not None
+            and not request.user.is_superuser
+        ):
+            raise serializers.ValidationError(
+                "No se pudo determinar el workspace para este usuario administrador."
+            )
         return attrs
 
     def create(self, validated_data):
         cover = validated_data.pop("cover_image", None)
         role = validated_data.pop("role")
         client_id = validated_data.pop("client_id", None)
+        tw = self.context.get("tenant_workspace")
         user = User.objects.create_user(
             username=validated_data["username"],
             email=validated_data.get("email", ""),
@@ -111,9 +128,13 @@ class UserAdminCreateSerializer(serializers.Serializer):
         )
         profile = user.profile
         profile.role = role
+        if role == UserProfile.Role.ADMIN:
+            profile.workspace = tw
+        else:
+            profile.workspace = None
         if cover:
             profile.cover_image = cover
-        profile.save(update_fields=["role", "cover_image"])
+        profile.save(update_fields=["role", "cover_image", "workspace"])
         if role == UserProfile.Role.CLIENT and client_id is not None:
             set_user_client_link(user, client_id)
         return user
@@ -129,7 +150,12 @@ class UserAdminUpdateSerializer(serializers.Serializer):
     def validate_client_id(self, value):
         if value is None:
             return value
-        if not Client.objects.filter(pk=value).exists():
+        request = self.context.get("request")
+        tw = self.context.get("tenant_workspace")
+        qs = Client.objects.filter(pk=value)
+        if tw is not None and request is not None and not request.user.is_superuser:
+            qs = qs.filter(workspace=tw)
+        if not qs.exists():
             raise serializers.ValidationError("Empresa (cliente) no encontrada.")
         return value
 
@@ -163,9 +189,15 @@ class UserAdminUpdateSerializer(serializers.Serializer):
 
         profile = instance.profile
         prof_fields = []
+        tw = self.context.get("tenant_workspace")
         if "role" in validated_data:
             profile.role = validated_data["role"]
             prof_fields.append("role")
+            if validated_data["role"] == UserProfile.Role.ADMIN:
+                profile.workspace = tw
+            else:
+                profile.workspace = None
+            prof_fields.append("workspace")
         if "cover_image" in validated_data:
             profile.cover_image = validated_data["cover_image"]
             prof_fields.append("cover_image")

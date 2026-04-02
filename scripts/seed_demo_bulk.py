@@ -20,6 +20,7 @@ from apps.malls.models import ShoppingCenter
 from apps.orders.models import Order, OrderItem, OrderStatus, OrderStatusEvent
 from apps.users.models import UserProfile
 from apps.workflow.models import WorkflowTransition
+from apps.workspaces.utils import get_default_workspace
 
 DEMO_CENTER_CODES = [f"DS{i:02d}" for i in range(1, 21)]
 
@@ -43,10 +44,17 @@ def main():
 
         Client.objects.filter(rif__startswith="DEMO-RIF-").delete()
 
+        ws = get_default_workspace()
+        if not ws:
+            raise RuntimeError(
+                "No hay workspace activo. Crea uno (p. ej. slug «sambil») o define DEFAULT_WORKSPACE_SLUG."
+            )
+
         # 20 centros (código único ≤8, prefijo DS para borrado idempotente)
         centers = []
         for i in range(1, 21):
             c = ShoppingCenter.objects.create(
+                workspace=ws,
                 name=f"Centro demo seed {i}",
                 code=f"DS{i:02d}",
                 city="Caracas",
@@ -67,6 +75,7 @@ def main():
         clients = []
         for i in range(1, 7):
             cl = Client.objects.create(
+                workspace=ws,
                 company_name=f"Empresa demo seed {i}",
                 rif=f"DEMO-RIF-{i:03d}",
                 contact_name=f"Contacto {i}",

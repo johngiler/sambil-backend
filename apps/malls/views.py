@@ -3,6 +3,7 @@ from rest_framework import viewsets
 
 from apps.malls.models import ShoppingCenter
 from apps.malls.serializers import ShoppingCenterSerializer
+from apps.workspaces.tenant import get_workspace_for_request
 
 
 class ShoppingCenterViewSet(viewsets.ReadOnlyModelViewSet):
@@ -21,6 +22,9 @@ class ShoppingCenterViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         qs = ShoppingCenter.objects.filter(on_homepage=True).order_by("listing_order", "code")
+        ws = get_workspace_for_request(self.request)
+        if ws is not None:
+            qs = qs.filter(workspace=ws)
         if self.action != "list":
             return qs
         params = self.request.query_params

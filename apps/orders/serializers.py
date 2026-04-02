@@ -9,6 +9,7 @@ from apps.orders.models import Order, OrderItem, OrderStatus, OrderStatusEvent
 from apps.orders.services import log_order_status_transition
 from apps.orders.validators import contract_meets_min_months, line_subtotal
 from apps.users.utils import get_marketplace_client, user_is_admin
+from apps.workspaces.tenant import get_workspace_for_request
 
 
 def _status_label(value: str) -> str:
@@ -22,6 +23,10 @@ def _status_label(value: str) -> str:
 
 class OrderItemSerializer(serializers.ModelSerializer):
     ad_space_code = serializers.CharField(source="ad_space.code", read_only=True)
+    ad_space_title = serializers.CharField(source="ad_space.title", read_only=True)
+    shopping_center_name = serializers.CharField(
+        source="ad_space.shopping_center.name", read_only=True
+    )
 
     class Meta:
         model = OrderItem
@@ -29,6 +34,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "id",
             "ad_space",
             "ad_space_code",
+            "ad_space_title",
+            "shopping_center_name",
             "start_date",
             "end_date",
             "monthly_price",
@@ -168,10 +175,17 @@ class OrderCreateSerializer(serializers.Serializer):
         if not request or not request.user.is_authenticated:
             raise serializers.ValidationError("Debes iniciar sesión para crear una orden.")
 
+        ws = get_workspace_for_request(request)
+
         if user_is_admin(request.user):
             if not data.get("client"):
                 raise serializers.ValidationError(
                     {"client": "Como administrador, indica el cliente (ID) de la orden."}
+                )
+            cli = data["client"]
+            if ws is not None and not request.user.is_superuser and cli.workspace_id != ws.id:
+                raise serializers.ValidationError(
+                    {"client": "Este cliente no pertenece al owner de este sitio."}
                 )
         else:
             ce = get_marketplace_client(request.user)
@@ -188,6 +202,20 @@ class OrderCreateSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"items": f"La toma {row['ad_space'].code} no está disponible en el marketplace público."}
                     )
+                if ce.workspace_id != sc.workspace_id:
+                    raise serializers.ValidationError(
+                        {
+                            "items": f"La toma {row['ad_space'].code} no pertenece al mismo owner que tu empresa."
+                        }
+                    )
+
+        for row in data["items"]:
+            sc = row["ad_space"].shopping_center
+            if ws is not None and not request.user.is_superuser and sc.workspace_id != ws.id:
+                raise serializers.ValidationError(
+                    {"items": f"La toma {row['ad_space'].code} no pertenece al owner de este sitio."}
+                )
+
         return data
 
     def create(self, validated_data):

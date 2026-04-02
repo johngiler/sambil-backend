@@ -1,30 +1,7 @@
 from rest_framework import serializers
 
 from apps.clients.models import Client, ClientStatus
-
-
-class ClientSerializer(serializers.ModelSerializer):
-    linked_user_ids = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Client
-        fields = (
-            "id",
-            "linked_user_ids",
-            "company_name",
-            "rif",
-            "contact_name",
-            "email",
-            "phone",
-            "address",
-            "city",
-            "notes",
-            "status",
-        )
-        read_only_fields = ("status", "linked_user_ids")
-
-    def get_linked_user_ids(self, obj):
-        return sorted(obj.member_profiles.values_list("user_id", flat=True))
+from apps.workspaces.tenant import get_workspace_for_request
 
 
 class ClientAdminSerializer(serializers.ModelSerializer):
@@ -37,6 +14,7 @@ class ClientAdminSerializer(serializers.ModelSerializer):
         model = Client
         fields = (
             "id",
+            "workspace",
             "linked_user_ids",
             "linked_usernames",
             "company_name",
@@ -54,7 +32,10 @@ class ClientAdminSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = ("linked_user_ids", "linked_usernames", "created_at", "updated_at")
-        extra_kwargs = {"cover_image": {"required": False, "allow_null": True}}
+        extra_kwargs = {
+            "workspace": {"required": False, "allow_null": True},
+            "cover_image": {"required": False, "allow_null": True},
+        }
 
     def get_linked_user_ids(self, obj):
         return sorted(obj.member_profiles.values_list("user_id", flat=True))
@@ -71,8 +52,16 @@ class MyCompanySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context["request"]
+        ws = get_workspace_for_request(request)
+        if not ws:
+            raise serializers.ValidationError(
+                {
+                    "detail": "No hay workspace para esta petición. Revisa el subdominio o configura DEFAULT_WORKSPACE_SLUG."
+                }
+            )
         c = Client.objects.create(
             status=ClientStatus.PENDING,
+            workspace=ws,
             **validated_data,
         )
         prof = request.user.profile

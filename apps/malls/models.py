@@ -4,6 +4,12 @@ from apps.common.models import TimeStampedActiveModel
 
 
 class ShoppingCenter(TimeStampedActiveModel):
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.CASCADE,
+        related_name="shopping_centers",
+        help_text="Owner / tenant al que pertenece este centro comercial.",
+    )
     name = models.CharField(max_length=200)
     code = models.CharField(max_length=8, unique=True, db_index=True)
     city = models.CharField(max_length=120)

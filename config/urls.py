@@ -11,7 +11,8 @@ from apps.malls.admin_viewsets import ShoppingCenterAdminViewSet
 from apps.malls.views import ShoppingCenterViewSet
 from apps.orders.views import OrderViewSet
 from apps.users.admin_viewsets import UserAdminViewSet
-from apps.users.views import MePasswordView, MeView, RegisterView
+from apps.users.views import MePasswordView, MeView
+from apps.workspaces.views import WorkspaceCurrentView
 
 router = DefaultRouter()
 router.register(r"centers", ShoppingCenterViewSet, basename="center")
@@ -32,9 +33,9 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("api/catalog/", include(catalog_router.urls)),
     path("api/me/company/", MyCompanyView.as_view(), name="my-company"),
+    path("api/workspace/current/", WorkspaceCurrentView.as_view(), name="workspace-current"),
     path("api/auth/me/", MeView.as_view(), name="auth-me"),
     path("api/auth/me/password/", MePasswordView.as_view(), name="auth-me-password"),
-    path("api/auth/register/", RegisterView.as_view(), name="register"),
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
 ]

@@ -26,6 +26,7 @@ if POSTGRES_DB and not _USE_SQLITE:
         or "change-me-in-production"
     )
 
+    # API único multi-tenant (mismo host para todos los owners).
     ALLOWED_HOSTS = ["localhost", "127.0.0.1", "api.publivalla.com"]
     _extra_hosts = os.environ.get("DJANGO_ALLOWED_HOSTS", "") or os.environ.get("ALLOWED_HOSTS", "")
     if _extra_hosts.strip():
@@ -35,10 +36,12 @@ if POSTGRES_DB and not _USE_SQLITE:
                 ALLOWED_HOSTS.append(h)
 
     CORS_ALLOW_ALL_ORIGINS = False
+    # Incluir un origen por cada subdominio SPA; el API sigue siendo api.publivalla.com.
     CORS_ALLOWED_ORIGINS = [
         "http://127.0.0.1:3000",
         "http://localhost:3000",
         "https://sambil.publivalla.com",
+        "https://nobis.publivalla.com",
     ]
     _cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "") or os.environ.get("CORS_ORIGINS", "")
     if _cors_env.strip():
@@ -49,6 +52,7 @@ if POSTGRES_DB and not _USE_SQLITE:
 
     CSRF_TRUSTED_ORIGINS = [
         "https://sambil.publivalla.com",
+        "https://nobis.publivalla.com",
         "https://api.publivalla.com",
     ]
     _csrf_env = os.environ.get("CSRF_TRUSTED_ORIGINS", "")

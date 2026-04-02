@@ -1,0 +1,49 @@
+from rest_framework import serializers
+
+from apps.workspaces.models import Workspace
+
+
+class WorkspacePublicSerializer(serializers.ModelSerializer):
+    """Branding y metadatos públicos del owner resuelto por la petición."""
+
+    logo_url = serializers.SerializerMethodField()
+    logo_mark_url = serializers.SerializerMethodField()
+    favicon_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Workspace
+        fields = (
+            "slug",
+            "name",
+            "legal_name",
+            "marketplace_title",
+            "marketplace_tagline",
+            "primary_color",
+            "secondary_color",
+            "support_email",
+            "logo_url",
+            "logo_mark_url",
+            "favicon_url",
+        )
+
+    def _absolute_media(self, obj, field_name: str) -> str | None:
+        f = getattr(obj, field_name, None)
+        if not f:
+            return None
+        request = self.context.get("request")
+        url = f.url
+        if request:
+            uri = request.build_absolute_uri(url)
+            if uri.startswith("http://") and request.META.get("HTTP_X_FORWARDED_PROTO", "").lower() == "https":
+                return "https://" + uri[7:]
+            return uri
+        return url
+
+    def get_logo_url(self, obj):
+        return self._absolute_media(obj, "logo")
+
+    def get_logo_mark_url(self, obj):
+        return self._absolute_media(obj, "logo_mark")
+
+    def get_favicon_url(self, obj):
+        return self._absolute_media(obj, "favicon")

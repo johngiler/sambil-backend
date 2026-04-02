@@ -12,6 +12,7 @@ class ShoppingCenterSerializer(serializers.ModelSerializer):
         model = ShoppingCenter
         fields = (
             "id",
+            "workspace",
             "name",
             "code",
             "city",
@@ -34,6 +35,7 @@ class ShoppingCenterSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         extra_kwargs = {
+            "workspace": {"required": False, "allow_null": True},
             "cover_image": {"required": False, "allow_null": True},
             "district": {"required": False, "allow_blank": True},
             "created_at": {"read_only": True},

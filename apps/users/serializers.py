@@ -1,13 +1,18 @@
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, update_last_login
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.serializers import (
+    TokenObtainPairSerializer,
+    TokenObtainSerializer,
+    TokenRefreshSerializer,
+)
 from rest_framework_simplejwt.settings import api_settings
 
 from apps.users.utils import get_user_role
+from apps.workspaces.tenant import get_workspace_for_request, user_can_access_workspace
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -16,27 +21,27 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ("id", "username", "email")
 
 
-class RegisterSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=150)
-    email = serializers.EmailField()
-    password = serializers.CharField(write_only=True, min_length=8)
-
-    def create(self, validated_data):
-        return User.objects.create_user(
-            username=validated_data["username"],
-            email=validated_data.get("email", ""),
-            password=validated_data["password"],
-        )
-
-
 class UserMeSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
     client_id = serializers.SerializerMethodField()
     cover_image = serializers.SerializerMethodField()
+    workspace_slug = serializers.SerializerMethodField()
+    workspace_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ("id", "username", "email", "first_name", "last_name", "role", "client_id", "cover_image")
+        fields = (
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "role",
+            "client_id",
+            "cover_image",
+            "workspace_slug",
+            "workspace_name",
+        )
 
     def get_role(self, obj):
         return get_user_role(obj)
@@ -50,6 +55,16 @@ class UserMeSerializer(serializers.ModelSerializer):
         if p and p.cover_image:
             return p.cover_image.url
         return None
+
+    def get_workspace_slug(self, obj):
+        request = self.context.get("request")
+        ws = get_workspace_for_request(request) if request else None
+        return ws.slug if ws else None
+
+    def get_workspace_name(self, obj):
+        request = self.context.get("request")
+        ws = get_workspace_for_request(request) if request else None
+        return ws.name if ws else None
 
 
 class UserMeUpdateSerializer(serializers.ModelSerializer):
@@ -79,7 +94,19 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
                     "no_active_account",
                 )
 
+        request = self.context.get("request")
+        ws = get_workspace_for_request(request) if request else None
+        token_ws = refresh.payload.get("workspace_slug")
+        if token_ws is None:
+            token_ws = default_workspace_slug()
+        if ws is not None and token_ws != ws.slug:
+            raise AuthenticationFailed(
+                "Token no válido para este sitio.",
+                "token_workspace_mismatch",
+            )
+
         access = refresh.access_token
+        access["workspace_slug"] = token_ws
         if user is not None:
             access["role"] = get_user_role(user) or "client"
             access["email"] = user.email or ""
@@ -119,3 +146,26 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token["email"] = user.email or ""
         token["username"] = user.username
         return token
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, str]:
+        data = TokenObtainSerializer.validate(self, attrs)
+        request = self.context.get("request")
+        ws = get_workspace_for_request(request) if request else None
+        if ws is not None and not user_can_access_workspace(self.user, ws):
+            raise AuthenticationFailed(
+                "Tu cuenta no pertenece a este sitio.",
+                "workspace_forbidden",
+            )
+
+        refresh = self.get_token(self.user)
+        slug = ws.slug if ws is not None else default_workspace_slug()
+        refresh["workspace_slug"] = slug
+        refresh.access_token["workspace_slug"] = slug
+
+        data["refresh"] = str(refresh)
+        data["access"] = str(refresh.access_token)
+
+        if api_settings.UPDATE_LAST_LOGIN:
+            update_last_login(None, self.user)
+
+        return data

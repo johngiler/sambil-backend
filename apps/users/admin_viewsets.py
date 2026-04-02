@@ -9,13 +9,24 @@ from apps.users.admin_serializers import (
     UserAdminUpdateSerializer,
 )
 from apps.users.base_viewsets import AdminModelViewSet
+from apps.workspaces.tenant import get_workspace_for_request
 
 
 class UserAdminViewSet(AdminModelViewSet):
     """Listado y gestión de usuarios del marketplace (solo admin)."""
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx["tenant_workspace"] = get_workspace_for_request(self.request)
+        return ctx
+
     def get_queryset(self):
         qs = User.objects.select_related("profile", "profile__client").order_by("username")
+        ws = get_workspace_for_request(self.request)
+        if ws is not None and not self.request.user.is_superuser:
+            qs = qs.filter(
+                Q(profile__workspace=ws) | Q(profile__client__workspace=ws)
+            ).distinct()
         if self.action == "list":
             role = self.request.query_params.get("role")
             if role and role != "all":

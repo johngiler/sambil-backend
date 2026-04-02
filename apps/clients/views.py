@@ -12,12 +12,29 @@ from apps.clients.serializers import (
 from apps.users.base_viewsets import AdminModelViewSet
 from apps.users.models import UserProfile
 from apps.users.utils import get_marketplace_client, user_is_admin
+from apps.workspaces.tenant import enforce_workspace_for_non_superuser, get_workspace_for_request
 
 
 class ClientViewSet(AdminModelViewSet):
     """Alta/gestión de clientes (empresa) — solo administradores."""
 
     serializer_class = ClientAdminSerializer
+
+    def perform_create(self, serializer):
+        tw = enforce_workspace_for_non_superuser(
+            self.request,
+            serializer.validated_data.get("workspace"),
+        )
+        serializer.save(workspace=tw)
+
+    def perform_update(self, serializer):
+        extra = {}
+        if "workspace" in serializer.validated_data:
+            extra["workspace"] = enforce_workspace_for_non_superuser(
+                self.request,
+                serializer.validated_data.get("workspace"),
+            )
+        serializer.save(**extra)
 
     def get_queryset(self):
         qs = Client.objects.all().order_by("company_name").prefetch_related(
@@ -26,6 +43,9 @@ class ClientViewSet(AdminModelViewSet):
                 queryset=UserProfile.objects.only("id", "user_id", "client_id"),
             ),
         )
+        ws = get_workspace_for_request(self.request)
+        if ws is not None and not self.request.user.is_superuser:
+            qs = qs.filter(workspace=ws)
         if self.action == "list":
             st = self.request.query_params.get("status")
             if st and st != "all":

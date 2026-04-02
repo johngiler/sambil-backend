@@ -32,6 +32,14 @@ class UserProfile(models.Model):
         on_delete=models.SET_NULL,
         related_name="member_profiles",
     )
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="staff_profiles",
+        help_text="Admin comercial del owner: acota el panel a este workspace. Vacío si no aplica.",
+    )
 
     class Meta:
         ordering = ["user_id"]

@@ -21,6 +21,7 @@ from apps.orders.validators import (
     order_item_conflicts,
 )
 from apps.users.utils import get_marketplace_client, user_is_admin
+from apps.workspaces.tenant import get_workspace_for_request
 
 
 class OrderViewSet(
@@ -42,8 +43,14 @@ class OrderViewSet(
             .all()
             .order_by("-created_at")
         )
+        ws = get_workspace_for_request(self.request)
         if user_is_admin(self.request.user):
-            pass
+            if self.request.user.is_superuser:
+                pass
+            elif ws is not None:
+                qs = qs.filter(client__workspace=ws)
+            else:
+                return qs.none()
         else:
             client = get_marketplace_client(self.request.user)
             if client is None:

@@ -4,7 +4,7 @@ from apps.common.models import TimeStampedActiveModel
 
 
 class AdSpaceType(models.TextChoices):
-    """Tipos genéricos (compat.) + formatos alineados a catálogo tipo Sambil Caracas (PDF)."""
+    """Tipos genéricos (compat.) + formatos alineados a catálogos PDF de espacios en CC."""
 
     BILLBOARD = "billboard", "Valla (genérico)"
     BANNER = "banner", "Banner / pendón (genérico)"

@@ -3,6 +3,7 @@ from rest_framework import viewsets
 
 from apps.ad_spaces.models import AdSpace
 from apps.ad_spaces.serializers import AdSpaceSerializer
+from apps.workspaces.tenant import get_workspace_for_request
 
 
 class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -14,6 +15,9 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
             shopping_center__is_active=True,
             is_active=True,
         )
+        ws = get_workspace_for_request(self.request)
+        if ws is not None:
+            qs = qs.filter(shopping_center__workspace=ws)
         center = self.request.query_params.get("center")
         if center:
             qs = qs.filter(shopping_center__code=center)

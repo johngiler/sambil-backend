@@ -8,10 +8,11 @@ class ShoppingCenterAdmin(admin.ModelAdmin):
     list_display = (
         "code",
         "name",
+        "workspace",
         "city",
         "is_active",
         "marketplace_catalog_enabled",
         "created_at",
     )
-    list_filter = ("is_active", "marketplace_catalog_enabled")
+    list_filter = ("is_active", "marketplace_catalog_enabled", "workspace")
     search_fields = ("code", "name")

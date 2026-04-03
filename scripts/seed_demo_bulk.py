@@ -1,202 +1,344 @@
 """
-Carga datos demo en BD (ejecutar: python manage.py shell < scripts/seed_demo_bulk.py).
-Elimina filas previas con prefijo DEMO_SEED_* y recrea:
-- 20 centros, 6 clientes, 3 usuarios cliente (perfil asociado a cliente),
-- 24 tomas, 20 pedidos + ítems, 20 bloques disponibilidad, 20 facturas,
-- 20 transiciones workflow, 20 eventos de estado.
+Rellena centros comerciales y tomas (AdSpace) de demostración por cada Workspace (owner) activo.
+
+Solo crea CC y tomas: no usuarios, clientes ni pedidos.
+
+Ejecutar desde backend:
+  python manage.py shell < scripts/seed_demo_bulk.py
+
+Idempotencia: antes de crear, elimina CC del workspace cuyo código coincide con el patrón
+generado desde el slug (máx. 8 caracteres) + índice 01–10; las tomas se borran en cascada.
+
+Variables opcionales:
+  SEED_WORKSPACE_SLUG — si está definido, solo ese slug (debe existir y estar activo).
 """
-from datetime import date, timedelta
 from decimal import Decimal
 
-from django.contrib.auth.models import User
 from django.db import transaction
-from django.utils import timezone
 
 from apps.ad_spaces.models import AdSpace, AdSpaceStatus, AdSpaceType
-from apps.availability.models import AvailabilityBlock, AvailabilityBlockType
-from apps.billing.models import Invoice, InvoiceStatus
-from apps.clients.models import Client, ClientStatus
 from apps.malls.models import ShoppingCenter
-from apps.orders.models import Order, OrderItem, OrderStatus, OrderStatusEvent
-from apps.users.models import UserProfile
-from apps.workflow.models import WorkflowTransition
-from apps.workspaces.utils import get_default_workspace
+from apps.workspaces.models import Workspace
 
-DEMO_CENTER_CODES = [f"DS{i:02d}" for i in range(1, 21)]
+# Diez ciudades distintas (Venezuela); cada CC usa una.
+CITY_ROWS = [
+    {
+        "city": "Caracas",
+        "district": "Chacao",
+        "address": "Av. Francisco de Miranda, esquina Av. Don Esteban. Urbanización Los Palos Grandes.",
+        "phone": "+58 212-276-4410",
+        "blurb": "Alto tráfico peatonal y vehicular; conexión con zona residencial y oficinas.",
+    },
+    {
+        "city": "Maracaibo",
+        "district": "5 de Julio",
+        "address": "Av. 5 de Julio, sector casco comercial, frente a zona bancaria.",
+        "phone": "+58 261-793-2201",
+        "blurb": "Núcleo financiero y retail de referencia en el estado Zulia.",
+    },
+    {
+        "city": "Valencia",
+        "district": "Prebo",
+        "address": "Av. Henry Ford, centro comercial anclado en corredor vial principal.",
+        "phone": "+58 241-825-1188",
+        "blurb": "Flujo constante de familias y viajeros hacia el interior del país.",
+    },
+    {
+        "city": "Barquisimeto",
+        "district": "Centro",
+        "address": "Carrera 19 con calle 25, sector céntrico de Barquisimeto.",
+        "phone": "+58 251-231-4490",
+        "blurb": "Zona de alta visibilidad en el epicentro comercial de Lara.",
+    },
+    {
+        "city": "Maracay",
+        "district": "Urbanización El Centro",
+        "address": "Av. Bolívar, tramo comercial principal, acceso desde autopista regional.",
+        "phone": "+58 243-551-9022",
+        "blurb": "Concentración de oficinas públicas y comercio detallista.",
+    },
+    {
+        "city": "Ciudad Guayana",
+        "district": "Puerto Ordaz",
+        "address": "Av. Las Américas, zona industrial y residencial en expansión.",
+        "phone": "+58 286-931-7744",
+        "blurb": "Corredor con fuerte componente industrial y consumo masivo.",
+    },
+    {
+        "city": "Maturín",
+        "district": "Centro",
+        "address": "Av. Roscio, sector comercial céntrico de Maturín.",
+        "phone": "+58 291-641-3355",
+        "blurb": "Punto neurálgico del comercio en el estado Monagas.",
+    },
+    {
+        "city": "Barinas",
+        "district": "Altamira",
+        "address": "Av. Alberto Arvelo Larriva, zona de crecimiento comercial.",
+        "phone": "+58 273-532-8810",
+        "blurb": "Área con alta afluencia de fines de semana y eventos locales.",
+    },
+    {
+        "city": "San Cristóbal",
+        "district": "Barrio Obrero",
+        "address": "Av. Principal de Capacho, corredor comercial transfronterizo.",
+        "phone": "+58 276-346-2299",
+        "blurb": "Movimiento comercial ligado al flujo regional y turismo de compras.",
+    },
+    {
+        "city": "Puerto La Cruz",
+        "district": "Paseo Colón",
+        "address": "Av. Bolívar, frente al paseo peatonal y zona gastronómica.",
+        "phone": "+58 281-331-4477",
+        "blurb": "Vista al mar y alta circulación en horario extendido.",
+    },
+]
+
+# Diez plantillas de toma por CC: tipo, título, descripción corta, medidas, zona, nivel, precio base
+SPACE_BLUEPRINTS = [
+    (
+        AdSpaceType.VALLA_VERTICAL,
+        "Valla vertical — acceso principal",
+        "Cara hacia el vestíbulo principal; iluminación LED perimetral en buen estado.",
+        Decimal("4.20"),
+        Decimal("6.00"),
+        "Hall de ingreso",
+        "Nivel feria",
+        Decimal("520"),
+    ),
+    (
+        AdSpaceType.PENDON_PASILLO,
+        "Pendón pasillo central — corredor A",
+        "Ubicación entre anclas de moda y cafetería; tráfico peatonal continuo.",
+        Decimal("8.00"),
+        Decimal("2.40"),
+        "Pasillo central",
+        "Primer nivel",
+        Decimal("380"),
+    ),
+    (
+        AdSpaceType.PENDON_ATRIO,
+        "Pendón colgante — atrio central",
+        "Doble faz visible desde planta baja y mezzanine.",
+        Decimal("6.00"),
+        Decimal("3.00"),
+        "Atrio",
+        "Doble altura",
+        Decimal("610"),
+    ),
+    (
+        AdSpaceType.VALLA_HORIZONTAL,
+        "Valla horizontal — zona de ascensores",
+        "Superficie panorámica junto a núcleo de ascensores y escaleras mecánicas.",
+        Decimal("12.00"),
+        Decimal("2.80"),
+        "Núcleo vertical",
+        "Segundo nivel",
+        Decimal("445"),
+    ),
+    (
+        AdSpaceType.PENDON_BALCON,
+        "Pendón de balcón — vista a plaza interior",
+        "Bolsillo superior estándar para lona tensada; montaje coordinado con mantenimiento.",
+        Decimal("5.50"),
+        Decimal("1.80"),
+        "Balcón plaza interior",
+        "Segundo nivel",
+        Decimal("290"),
+    ),
+    (
+        AdSpaceType.PENDON_COLUMNA,
+        "Envolvente de columna — pasillo B",
+        "Cuatro caras visibles; ideal para campañas de corta duración.",
+        Decimal("0.90"),
+        Decimal("2.60"),
+        "Pasillo lateral",
+        "Primer nivel",
+        Decimal("175"),
+    ),
+    (
+        AdSpaceType.GIGANTOGRAFIA_FACHADA,
+        "Gigantografía — fachada peatonal",
+        "Gran formato sobre muro estructural; requiere estudio de viento local.",
+        Decimal("14.00"),
+        Decimal("5.50"),
+        "Fachada",
+        "Exterior",
+        Decimal("890"),
+    ),
+    (
+        AdSpaceType.PENDON_PLAZA,
+        "Pendón plaza jardín",
+        "Área semiabierta con eventos los fines de semana; alta recordación de marca.",
+        Decimal("7.20"),
+        Decimal("2.20"),
+        "Plaza jardín",
+        "Nivel feria",
+        Decimal("410"),
+    ),
+    (
+        AdSpaceType.ELEVATOR,
+        "Panel en cabina de ascensor — torre norte",
+        "Cuatro cabinas con rotación de creatividades digitales y estáticas.",
+        Decimal("1.20"),
+        Decimal("1.80"),
+        "Torre norte",
+        "Multinivel",
+        Decimal("265"),
+    ),
+    (
+        AdSpaceType.BANNER,
+        "Banner perimetral — estacionamiento cubierto",
+        "Carril de ingreso y salida de vehículos; visibilidad en marcha lenta.",
+        Decimal("10.00"),
+        Decimal("1.20"),
+        "Estacionamiento",
+        "Subsuelo",
+        Decimal("320"),
+    ),
+]
+
+
+def _slug_alnum_upper(slug: str) -> str:
+    return "".join(c for c in (slug or "").upper() if c.isalnum())
+
+
+def center_code_for(ws: Workspace, index_1_to_10: int) -> str:
+    """Código único global ≤8: prefijo del slug + dos dígitos."""
+    base = _slug_alnum_upper(ws.slug)
+    if len(base) < 2:
+        base = f"WS{ws.pk}"
+    if len(base) > 6:
+        base = base[:6]
+    code = f"{base}{index_1_to_10:02d}"
+    return code[-8:] if len(code) > 8 else code
+
+
+def ad_space_code(center_code: str, index_1_to_10: int) -> str:
+    """Código de toma único global ≤32."""
+    return f"{center_code}-{index_1_to_10:02d}"
+
+
+def brand_display_name(ws: Workspace) -> str:
+    t = (getattr(ws, "marketplace_title", None) or "").strip()
+    if t:
+        return t
+    return (ws.name or ws.slug).strip() or ws.slug
+
+
+def contact_email_for(ws: Workspace, local_part: str) -> str:
+    """Correo de muestra (dominio example.com reservado para documentación)."""
+    slug = _slug_alnum_upper(ws.slug).lower() or "centro"
+    return f"{local_part}.{slug}@example.com"
+
+
+def workspaces_to_seed():
+    import os
+
+    only = (os.environ.get("SEED_WORKSPACE_SLUG") or "").strip().lower()
+    qs = Workspace.objects.filter(is_active=True).order_by("slug")
+    if only:
+        qs = qs.filter(slug=only)
+    return list(qs)
 
 
 def main():
+    import os
+
+    wss = workspaces_to_seed()
+    if not wss:
+        slug = (os.environ.get("SEED_WORKSPACE_SLUG") or "").strip()
+        raise RuntimeError(
+            "No hay workspaces activos para sembrar."
+            + (f" (slug «{slug}» no existe o está inactivo)" if slug else "")
+        )
+
+    total_centers = 0
+    total_spaces = 0
+
     with transaction.atomic():
-        # Borrado en orden inverso (FKs)
-        OrderStatusEvent.objects.filter(note__startswith="DEMO_SEED").delete()
-        WorkflowTransition.objects.filter(note__startswith="DEMO_SEED").delete()
-        Invoice.objects.filter(number__startswith="DEMO-INV-").delete()
-        OrderItem.objects.filter(order__client__rif__startswith="DEMO-RIF-").delete()
-        Order.objects.filter(client__rif__startswith="DEMO-RIF-").delete()
-        AvailabilityBlock.objects.filter(
-            ad_space__code__startswith="DEMO-SPACE-"
-        ).delete()
-        AdSpace.objects.filter(code__startswith="DEMO-SPACE-").delete()
-        ShoppingCenter.objects.filter(code__in=DEMO_CENTER_CODES).delete()
+        for ws in wss:
+            codes = [center_code_for(ws, i) for i in range(1, 11)]
+            ShoppingCenter.objects.filter(workspace=ws, code__in=codes).delete()
 
-        for u in User.objects.filter(username__startswith="demo_client_"):
-            u.delete()
+            brand = brand_display_name(ws)
 
-        Client.objects.filter(rif__startswith="DEMO-RIF-").delete()
+            for idx, row in enumerate(CITY_ROWS, start=1):
+                cc_code = codes[idx - 1]
+                name = f"{brand} · {row['city']}"
+                contact = contact_email_for(ws, f"cc{idx}")
 
-        ws = get_default_workspace()
-        if not ws:
-            raise RuntimeError(
-                "No hay workspace activo. Crea uno (p. ej. slug «sambil») o define DEFAULT_WORKSPACE_SLUG."
-            )
+                center = ShoppingCenter.objects.create(
+                    workspace=ws,
+                    name=name,
+                    code=cc_code,
+                    city=row["city"],
+                    district=row["district"],
+                    address=row["address"],
+                    country="Venezuela",
+                    phone=row["phone"],
+                    contact_email=contact,
+                    description=(
+                        f"Centro integrado al marketplace {brand} en {row['city']}. "
+                        f"{row['blurb']} Coordinación de montajes y mantenimiento según manual del CC."
+                    ),
+                    on_homepage=True,
+                    listing_order=idx,
+                    marketplace_catalog_enabled=True,
+                    is_active=True,
+                )
+                total_centers += 1
 
-        # 20 centros (código único ≤8, prefijo DS para borrado idempotente)
-        centers = []
-        for i in range(1, 21):
-            c = ShoppingCenter.objects.create(
-                workspace=ws,
-                name=f"Centro demo seed {i}",
-                code=f"DS{i:02d}",
-                city="Caracas",
-                district="Chacao" if i % 2 else "La Candelaria",
-                address=f"Av. Demo {i}, local",
-                country="Venezuela",
-                phone=f"+58-212-{1000000 + i}",
-                contact_email=f"centro{i}@demo-seed.local",
-                description=f"Centro comercial de prueba #{i}",
-                on_homepage=True,
-                listing_order=i,
-                marketplace_catalog_enabled=True,
-                is_active=True,
-            )
-            centers.append(c)
+                for sidx, bp in enumerate(SPACE_BLUEPRINTS, start=1):
+                    (
+                        sp_type,
+                        title,
+                        desc,
+                        width,
+                        height,
+                        zone,
+                        level,
+                        price,
+                    ) = bp
+                    # Ligera variación de precio por índice para que no queden todos idénticos
+                    price_adj = price + Decimal((idx + sidx) % 7) * Decimal("12")
 
-        # 6 clientes
-        clients = []
-        for i in range(1, 7):
-            cl = Client.objects.create(
-                workspace=ws,
-                company_name=f"Empresa demo seed {i}",
-                rif=f"DEMO-RIF-{i:03d}",
-                contact_name=f"Contacto {i}",
-                email=f"cliente{i}@demo-seed.local",
-                phone=f"+58-424-{5000000 + i}",
-                address=f"Zona industrial {i}",
-                city="Caracas",
-                status=ClientStatus.ACTIVE,
-                is_active=True,
-            )
-            clients.append(cl)
+                    status_cycle = (
+                        AdSpaceStatus.AVAILABLE,
+                        AdSpaceStatus.AVAILABLE,
+                        AdSpaceStatus.RESERVED,
+                    )
+                    status = status_cycle[sidx % 3]
 
-        # 3 usuarios cliente → asociados a clientes 1..3
-        client_users = []
-        for i in range(1, 4):
-            username = f"demo_client_{i}"
-            u = User.objects.create_user(
-                username=username,
-                email=f"{username}@demo-seed.local",
-                password="DemoSeed123!",
-                first_name=f"Usuario",
-                last_name=f"Cliente{i}",
-            )
-            p = u.profile
-            p.role = UserProfile.Role.CLIENT
-            p.client = clients[i - 1]
-            p.save(update_fields=["role", "client"])
-            client_users.append(u)
+                    AdSpace.objects.create(
+                        code=ad_space_code(cc_code, sidx),
+                        shopping_center=center,
+                        type=sp_type,
+                        title=title,
+                        description=desc,
+                        width=width,
+                        height=height,
+                        monthly_price_usd=price_adj,
+                        status=status,
+                        level=level,
+                        venue_zone=zone,
+                        location_description=(
+                            f"Referencia interna: módulo {sidx}, {zone.lower()}, {level.lower()}."
+                        ),
+                        material="Lona frontlit / vinil según especificación del fabricante aprobado.",
+                        is_active=True,
+                    )
+                    total_spaces += 1
 
-        types_cycle = [c[0] for c in AdSpaceType.choices]
-        spaces = []
-        for n in range(1, 25):
-            center = centers[(n - 1) % len(centers)]
-            code = f"DEMO-SPACE-{n:03d}"
-            sp = AdSpace.objects.create(
-                code=code,
-                shopping_center=center,
-                type=types_cycle[n % len(types_cycle)],
-                title=f"Toma demo {n}",
-                description=f"Espacio publicitario de prueba número {n}",
-                width=Decimal("3.50"),
-                height=Decimal("2.00"),
-                monthly_price_usd=Decimal(str(200 + n * 15)),
-                status=AdSpaceStatus.AVAILABLE if n % 3 else AdSpaceStatus.RESERVED,
-                level=f"Nivel {(n % 5) + 1}",
-                venue_zone=f"Zona {n % 7}",
-                is_active=True,
-            )
-            spaces.append(sp)
-
-        today = date.today()
-        orders = []
-        for o in range(1, 21):
-            client = clients[(o - 1) % len(clients)]
-            ord_ = Order.objects.create(
-                client=client,
-                status=OrderStatus.SUBMITTED if o % 2 else OrderStatus.DRAFT,
-                total_amount=Decimal(str(o * 150)),
-                submitted_at=timezone.now() if o % 2 else None,
-                is_active=True,
-            )
-            orders.append(ord_)
-            sp = spaces[(o - 1) % len(spaces)]
-            OrderItem.objects.create(
-                order=ord_,
-                ad_space=sp,
-                start_date=today + timedelta(days=10),
-                end_date=today + timedelta(days=100),
-                monthly_price=sp.monthly_price_usd,
-                subtotal=Decimal(str(o * 150)),
-                is_active=True,
-            )
-
-        for b in range(1, 21):
-            sp = spaces[b % len(spaces)]
-            AvailabilityBlock.objects.create(
-                ad_space=sp,
-                start_date=today + timedelta(days=5 + b),
-                end_date=today + timedelta(days=30 + b),
-                type=AvailabilityBlockType.RESERVED,
-                is_active=True,
-            )
-
-        for inv_n, ord_ in enumerate(orders[:20], start=1):
-            Invoice.objects.create(
-                order=ord_,
-                number=f"DEMO-INV-{inv_n:04d}",
-                amount=ord_.total_amount,
-                status=InvoiceStatus.ISSUED if inv_n % 2 else InvoiceStatus.DRAFT,
-                is_active=True,
-            )
-
-        for w in range(1, 21):
-            ord_ = orders[w % len(orders)]
-            WorkflowTransition.objects.create(
-                order=ord_,
-                from_status=OrderStatus.DRAFT,
-                to_status=OrderStatus.SUBMITTED,
-                note=f"DEMO_SEED transición {w}",
-                is_active=True,
-            )
-
-        admin_user = User.objects.filter(is_superuser=True).first()
-        for e in range(1, 21):
-            ord_ = orders[e % len(orders)]
-            OrderStatusEvent.objects.create(
-                order=ord_,
-                from_status="",
-                to_status=OrderStatus.SUBMITTED,
-                created_at=timezone.now(),
-                actor=admin_user,
-                note=f"DEMO_SEED evento {e}",
-            )
-
-    print("OK seed DEMO:")
-    print(f"  centros demo DS: {ShoppingCenter.objects.filter(code__in=DEMO_CENTER_CODES).count()}")
-    print(f"  clientes DEMO-RIF: {Client.objects.filter(rif__startswith='DEMO-RIF-').count()}")
-    print(f"  usuarios demo_client_: {User.objects.filter(username__startswith='demo_client_').count()}")
-    print(f"  tomas DEMO-SPACE: {AdSpace.objects.filter(code__startswith='DEMO-SPACE-').count()}")
-    print(f"  pedidos (clientes demo): {Order.objects.filter(client__rif__startswith='DEMO-RIF-').count()}")
-    print("  Login prueba: demo_client_1 / DemoSeed123! (y _2, _3)")
+    print("OK seed CC + tomas (por owner activo):")
+    for ws in wss:
+        codes = [center_code_for(ws, i) for i in range(1, 11)]
+        n_cc = ShoppingCenter.objects.filter(workspace=ws, code__in=codes).count()
+        n_sp = AdSpace.objects.filter(shopping_center__code__in=codes).count()
+        print(f"  {ws.slug}: {n_cc} centros sembrados, {n_sp} tomas (objetivo 10 CC × 10 tomas = 100).")
+    print(f"  Totales esta corrida: {total_centers} CC, {total_spaces} tomas creados.")
 
 
+# Con `python manage.py shell < scripts/seed_demo_bulk.py`, __name__ no es "__main__";
+# la llamada directa es la forma soportada. No importar este módulo desde otro código.
 main()

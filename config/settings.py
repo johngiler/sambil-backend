@@ -178,3 +178,14 @@ try:
     from .local_settings import *  # noqa: F403
 except ImportError:
     pass
+
+# CORS: en producción, cualquier SPA en `https://{slug}.{TENANT_BASE_DOMAIN}` (Nobis, Sambil, …)
+# sin tener que repetir cada origen en `CORS_ALLOWED_ORIGINS`. Requiere `TENANT_BASE_DOMAIN` (p. ej. publivalla.com).
+if not DEBUG and TENANT_BASE_DOMAIN:
+    import re as _re_cors
+
+    _apex_esc = _re_cors.escape(TENANT_BASE_DOMAIN.strip().lower())
+    _spa_tenant_pattern = rf"^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?\.{_apex_esc}$"
+    _cur = list(globals().get("CORS_ALLOWED_ORIGIN_REGEXES") or [])
+    if _spa_tenant_pattern not in _cur:
+        CORS_ALLOWED_ORIGIN_REGEXES = _cur + [_spa_tenant_pattern]

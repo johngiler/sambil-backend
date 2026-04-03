@@ -44,7 +44,7 @@ class ClientViewSet(AdminModelViewSet):
             ),
         )
         ws = get_workspace_for_request(self.request)
-        if ws is not None and not self.request.user.is_superuser:
+        if ws is not None:
             qs = qs.filter(workspace=ws)
         if self.action == "list":
             st = self.request.query_params.get("status")
@@ -78,7 +78,7 @@ class MyCompanyView(APIView):
     def post(self, request):
         if user_is_admin(request.user):
             return Response(
-                {"detail": "Los administradores gestionan clientes desde el panel API /api/clients/."},
+                {"detail": "Esta acción no está disponible para tu cuenta."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if get_marketplace_client(request.user):
@@ -100,7 +100,7 @@ class MyCompanyView(APIView):
             )
         if user_is_admin(request.user):
             return Response(
-                {"detail": "Usa el panel de administración."},
+                {"detail": "Esta acción no está disponible para tu cuenta."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         ser = MyCompanySerializer(c, data=request.data, partial=True, context={"request": request})

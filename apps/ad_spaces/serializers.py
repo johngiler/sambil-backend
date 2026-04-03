@@ -13,6 +13,9 @@ class AdSpaceSerializer(serializers.ModelSerializer):
     shopping_center_name = serializers.CharField(
         source="shopping_center.name", read_only=True
     )
+    shopping_center_city = serializers.CharField(
+        source="shopping_center.city", read_only=True
+    )
     catalog_public = serializers.SerializerMethodField(read_only=True)
     availability_year = serializers.SerializerMethodField(read_only=True)
     months_occupied = serializers.SerializerMethodField(read_only=True)
@@ -25,6 +28,7 @@ class AdSpaceSerializer(serializers.ModelSerializer):
             "shopping_center",
             "shopping_center_code",
             "shopping_center_name",
+            "shopping_center_city",
             "catalog_public",
             "availability_year",
             "months_occupied",

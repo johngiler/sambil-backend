@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from apps.clients.models import Client
 from apps.users.models import UserProfile
+from apps.users.utils import get_user_profile, is_platform_staff
 
 
 class NullableClientIdField(serializers.IntegerField):
@@ -24,25 +25,9 @@ def revoke_django_privileges(user):
     user.save(update_fields=["is_staff", "is_superuser"])
 
 
-def set_user_client_link(user, client_id):
-    """Asigna o quita la empresa en UserProfile.client (varios usuarios pueden compartir el mismo Client)."""
-    profile = user.profile
-    if client_id is None:
-        profile.client = None
-        profile.save(update_fields=["client"])
-        return
-    c = Client.objects.get(pk=client_id)
-    profile.client = c
-    profile.save(update_fields=["client"])
-
-
 class UserAdminSerializer(serializers.ModelSerializer):
-    role = serializers.CharField(source="profile.role", read_only=True)
-    cover_image = serializers.ImageField(
-        source="profile.cover_image",
-        read_only=True,
-        allow_null=True,
-    )
+    role = serializers.SerializerMethodField()
+    cover_image = serializers.SerializerMethodField()
     client_id = serializers.SerializerMethodField()
     client_company_name = serializers.SerializerMethodField()
 
@@ -61,12 +46,22 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "date_joined",
         )
 
+    def get_role(self, obj):
+        p = get_user_profile(obj)
+        return p.role if p else None
+
+    def get_cover_image(self, obj):
+        p = get_user_profile(obj)
+        if p and p.cover_image:
+            return p.cover_image.url
+        return None
+
     def get_client_id(self, obj):
-        p = getattr(obj, "profile", None)
+        p = get_user_profile(obj)
         return p.client_id if p and p.client_id else None
 
     def get_client_company_name(self, obj):
-        p = getattr(obj, "profile", None)
+        p = get_user_profile(obj)
         if p and p.client_id:
             c = getattr(p, "client", None)
             return c.company_name if c else None
@@ -90,7 +85,7 @@ class UserAdminCreateSerializer(serializers.Serializer):
         request = self.context.get("request")
         tw = self.context.get("tenant_workspace")
         qs = Client.objects.filter(pk=value)
-        if tw is not None and request is not None and not request.user.is_superuser:
+        if tw is not None and request is not None:
             qs = qs.filter(workspace=tw)
         if not qs.exists():
             raise serializers.ValidationError("Empresa (cliente) no encontrada.")
@@ -105,14 +100,11 @@ class UserAdminCreateSerializer(serializers.Serializer):
             )
         request = self.context.get("request")
         tw = self.context.get("tenant_workspace")
-        if (
-            role == UserProfile.Role.ADMIN
-            and tw is None
-            and request is not None
-            and not request.user.is_superuser
-        ):
+        if role == UserProfile.Role.ADMIN and tw is None and request is not None:
+            raise serializers.ValidationError("No se pudo completar la solicitud.")
+        if role == UserProfile.Role.CLIENT and cid is None:
             raise serializers.ValidationError(
-                "No se pudo determinar el workspace para este usuario administrador."
+                {"client_id": "Selecciona la empresa para el rol cliente marketplace."}
             )
         return attrs
 
@@ -128,15 +120,23 @@ class UserAdminCreateSerializer(serializers.Serializer):
         )
         profile = user.profile
         profile.role = role
-        if role == UserProfile.Role.ADMIN:
-            profile.workspace = tw
-        else:
-            profile.workspace = None
         if cover:
             profile.cover_image = cover
-        profile.save(update_fields=["role", "cover_image", "workspace"])
-        if role == UserProfile.Role.CLIENT and client_id is not None:
-            set_user_client_link(user, client_id)
+        if role == UserProfile.Role.ADMIN:
+            profile.client = None
+            profile.workspace = tw
+        else:
+            try:
+                c = Client.objects.get(pk=client_id)
+            except Client.DoesNotExist as exc:
+                raise serializers.ValidationError({"client_id": "Empresa no encontrada."}) from exc
+            if tw is not None and c.workspace_id != tw.id:
+                raise serializers.ValidationError({"client_id": "Empresa no encontrada."})
+            profile.client = c
+            profile.workspace = c.workspace
+        profile.full_clean()
+        profile.save()
+        revoke_django_privileges(user)
         return user
 
 
@@ -153,7 +153,7 @@ class UserAdminUpdateSerializer(serializers.Serializer):
         request = self.context.get("request")
         tw = self.context.get("tenant_workspace")
         qs = Client.objects.filter(pk=value)
-        if tw is not None and request is not None and not request.user.is_superuser:
+        if tw is not None and request is not None:
             qs = qs.filter(workspace=tw)
         if not qs.exists():
             raise serializers.ValidationError("Empresa (cliente) no encontrada.")
@@ -161,11 +161,34 @@ class UserAdminUpdateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         inst = self.instance
-        role_after = attrs.get("role", inst.profile.role)
+        p = get_user_profile(inst)
+        current_role = p.role if p else UserProfile.Role.CLIENT
+        role_after = attrs.get("role", current_role)
+        request = self.context.get("request")
+        tw = self.context.get("tenant_workspace")
+
         if "client_id" in attrs and attrs["client_id"] is not None and role_after != UserProfile.Role.CLIENT:
             raise serializers.ValidationError(
                 {"client_id": "Solo los usuarios con rol «Cliente marketplace» pueden vincularse a una empresa."}
             )
+
+        if role_after == UserProfile.Role.ADMIN:
+            if tw is None and request is not None:
+                raise serializers.ValidationError("No se pudo completar la solicitud.")
+            if "client_id" in attrs and attrs.get("client_id") is not None:
+                raise serializers.ValidationError(
+                    {
+                        "client_id": "Los administradores del marketplace no llevan empresa vinculada.",
+                    }
+                )
+
+        if role_after == UserProfile.Role.CLIENT:
+            cid = attrs["client_id"] if "client_id" in attrs else (p.client_id if p else None)
+            if cid is None:
+                raise serializers.ValidationError(
+                    {"client_id": "Selecciona la empresa para el rol cliente marketplace."}
+                )
+
         return attrs
 
     def validate_password(self, value):
@@ -187,32 +210,41 @@ class UserAdminUpdateSerializer(serializers.Serializer):
             instance.email = validated_data["email"]
             instance.save(update_fields=["email"])
 
-        profile = instance.profile
-        prof_fields = []
+        if is_platform_staff(instance):
+            raise serializers.ValidationError({"detail": "No se pudo completar la solicitud."})
+        profile, _ = UserProfile.objects.get_or_create(user=instance)
         tw = self.context.get("tenant_workspace")
+
         if "role" in validated_data:
             profile.role = validated_data["role"]
-            prof_fields.append("role")
-            if validated_data["role"] == UserProfile.Role.ADMIN:
-                profile.workspace = tw
-            else:
-                profile.workspace = None
-            prof_fields.append("workspace")
+
         if "cover_image" in validated_data:
             profile.cover_image = validated_data["cover_image"]
-            prof_fields.append("cover_image")
-        if prof_fields:
-            profile.save(update_fields=prof_fields)
 
-        instance.refresh_from_db()
-        profile.refresh_from_db()
-
-        if "role" in validated_data and validated_data["role"] == UserProfile.Role.CLIENT:
-            revoke_django_privileges(instance)
+        if profile.role == UserProfile.Role.CLIENT and client_id_provided:
+            if client_id is None:
+                profile.client = None
+            else:
+                try:
+                    c = Client.objects.get(pk=client_id)
+                except Client.DoesNotExist as exc:
+                    raise serializers.ValidationError({"client_id": "Empresa no encontrada."}) from exc
+                profile.client = c
 
         if profile.role == UserProfile.Role.ADMIN:
-            set_user_client_link(instance, None)
-        elif client_id_provided:
-            set_user_client_link(instance, client_id)
+            profile.client_id = None
+            profile.workspace = tw
+        elif profile.role == UserProfile.Role.CLIENT:
+            if not profile.client_id:
+                raise serializers.ValidationError(
+                    {"client_id": "Selecciona la empresa para el rol cliente marketplace."}
+                )
+            profile.workspace_id = profile.client.workspace_id
+
+        profile.full_clean()
+        profile.save()
+
+        if profile.role in (UserProfile.Role.CLIENT, UserProfile.Role.ADMIN):
+            revoke_django_privileges(instance)
 
         return instance

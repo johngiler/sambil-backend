@@ -2,6 +2,12 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
+from django.utils.translation import gettext_lazy as _
+
+# Texto para <title> y atributo alt del logo (sin mostrar «Django administration» en cabecera).
+admin.site.site_header = _("Administración")
+admin.site.site_title = _("Admin")
+admin.site.index_title = _("Inicio")
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from apps.ad_spaces.admin_viewsets import AdSpaceAdminViewSet
@@ -9,9 +15,15 @@ from apps.ad_spaces.views import AdSpaceViewSet
 from apps.clients.views import ClientViewSet, MyCompanyView
 from apps.malls.admin_viewsets import ShoppingCenterAdminViewSet
 from apps.malls.views import ShoppingCenterViewSet
+from apps.orders.guest_checkout import GuestCheckoutEmailCheckView, GuestCheckoutView
 from apps.orders.views import OrderViewSet
 from apps.users.admin_viewsets import UserAdminViewSet
-from apps.users.views import MePasswordView, MeView
+from apps.users.views import (
+    ActivateClientAccountView,
+    MePasswordView,
+    MeView,
+    ValidatePasswordView,
+)
 from apps.workspaces.views import WorkspaceCurrentView
 
 router = DefaultRouter()
@@ -30,6 +42,14 @@ catalog_router.register(r"spaces", AdSpaceViewSet, basename="catalog-space")
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path(
+        "api/checkout/guest/check-email/",
+        GuestCheckoutEmailCheckView.as_view(),
+        name="guest-checkout-check-email",
+    ),
+    path("api/checkout/guest/", GuestCheckoutView.as_view(), name="guest-checkout"),
+    path("api/auth/activate-client/", ActivateClientAccountView.as_view(), name="activate-client"),
+    path("api/auth/validate-password/", ValidatePasswordView.as_view(), name="validate-password"),
     path("api/", include(router.urls)),
     path("api/catalog/", include(catalog_router.urls)),
     path("api/me/company/", MyCompanyView.as_view(), name="my-company"),

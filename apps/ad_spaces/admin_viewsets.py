@@ -16,8 +16,10 @@ class AdSpaceAdminViewSet(AdminModelViewSet):
         if center is None:
             return
         ws = get_workspace_for_request(self.request)
-        if ws is None or self.request.user.is_superuser:
-            return
+        if ws is None:
+            raise ValidationError(
+                {"shopping_center": "No se pudo determinar el owner de esta petición."}
+            )
         if center.workspace_id != ws.id:
             raise ValidationError(
                 {"shopping_center": "Este centro no pertenece al owner de este sitio."}
@@ -38,7 +40,7 @@ class AdSpaceAdminViewSet(AdminModelViewSet):
             "shopping_center__code", "code"
         )
         ws = get_workspace_for_request(self.request)
-        if ws is not None and not self.request.user.is_superuser:
+        if ws is not None:
             qs = qs.filter(shopping_center__workspace=ws)
         if self.action == "list":
             st = self.request.query_params.get("status")

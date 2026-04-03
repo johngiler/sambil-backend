@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -6,7 +7,7 @@ class UserProfile(models.Model):
     """Rol de aplicación (JWT + permisos DRF). Distinto de is_staff de Django."""
 
     class Role(models.TextChoices):
-        ADMIN = "admin", "Administrador"
+        ADMIN = "admin", "Administrador marketplace"
         CLIENT = "client", "Cliente marketplace"
 
     user = models.OneToOneField(
@@ -31,6 +32,7 @@ class UserProfile(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="member_profiles",
+        help_text="Obligatorio si el rol es cliente marketplace (misma empresa que el usuario).",
     )
     workspace = models.ForeignKey(
         "workspaces.Workspace",
@@ -38,11 +40,56 @@ class UserProfile(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="staff_profiles",
-        help_text="Admin comercial del owner: acota el panel a este workspace. Vacío si no aplica.",
+        help_text="Administrador marketplace: obligatorio (owner del panel). "
+        "Cliente marketplace: obligatorio y debe ser el workspace de la empresa vinculada.",
     )
 
     class Meta:
         ordering = ["user_id"]
+
+    def clean(self):
+        super().clean()
+        if self.role == self.Role.ADMIN:
+            if self.client_id:
+                raise ValidationError(
+                    {
+                        "client": "Los administradores del marketplace no llevan empresa vinculada. "
+                        "Quita el cliente o cambia el rol."
+                    }
+                )
+            if not self.workspace_id:
+                raise ValidationError(
+                    {
+                        "workspace": "El workspace del owner es obligatorio para administradores del marketplace."
+                    }
+                )
+        elif self.role == self.Role.CLIENT:
+            if not self.client_id:
+                raise ValidationError(
+                    {
+                        "client": "Selecciona la empresa para usuarios con rol cliente marketplace.",
+                    }
+                )
+            if not self.workspace_id:
+                raise ValidationError(
+                    {
+                        "workspace": "Selecciona el workspace del owner (debe ser el de la empresa).",
+                    }
+                )
+            cid = self.client_id
+            wid = self.workspace_id
+            from apps.clients.models import Client
+
+            try:
+                c = Client.objects.get(pk=cid)
+            except Client.DoesNotExist:
+                raise ValidationError({"client": "La empresa indicada no existe."}) from None
+            if c.workspace_id != wid:
+                raise ValidationError(
+                    {
+                        "workspace": "El workspace debe coincidir con el del cliente seleccionado.",
+                    }
+                )
 
     def __str__(self):
         return f"{self.user.username} ({self.role})"

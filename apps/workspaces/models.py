@@ -10,6 +10,7 @@ Tenant lógico del SaaS: un owner (marca operadora) con sus CCs, tomas y aislami
 from django.db import models
 
 from apps.common.models import TimeStampedActiveModel
+from apps.workspaces.validators import validate_brand_graphic, validate_favicon_file
 
 
 class Workspace(TimeStampedActiveModel):
@@ -28,40 +29,77 @@ class Workspace(TimeStampedActiveModel):
         blank=True,
         help_text="Razón social u organismo propietario (opcional).",
     )
-    logo = models.ImageField(
+    logo = models.FileField(
+        "Logo (logotipo completo)",
         upload_to="workspaces/logos/%Y/%m/",
         blank=True,
         null=True,
-        help_text="Logo principal (marketplace / emails).",
+        validators=[validate_brand_graphic],
+        help_text="Marca completa con tipografía (logotipo). Cabecera amplia, pie, emails. Formatos: SVG, PNG, JPEG, GIF o WebP.",
     )
-    logo_mark = models.ImageField(
+    logo_mark = models.FileField(
+        "Isotipo",
         upload_to="workspaces/logo_marks/%Y/%m/",
         blank=True,
         null=True,
-        help_text="Isotipo o marca reducida (header compacto).",
+        validators=[validate_brand_graphic],
+        help_text="Símbolo o marca reducida sin el nombre extendido (header compacto, favicon si no subes uno aparte). Mismos formatos que el logo.",
     )
-    favicon = models.ImageField(
+    favicon = models.FileField(
+        "Favicon",
         upload_to="workspaces/favicons/%Y/%m/",
         blank=True,
         null=True,
+        validators=[validate_favicon_file],
+        help_text="Icono de pestaña del navegador. SVG, PNG, ICO, JPEG, GIF o WebP.",
     )
     primary_color = models.CharField(
+        "Color primario",
         max_length=32,
         blank=True,
-        help_text="Color de marca principal (hex, ej. #2c2c81).",
+        help_text="Hex (ej. #2c2c81). Tema y acentos del marketplace.",
     )
     secondary_color = models.CharField(
+        "Color secundario",
         max_length=32,
         blank=True,
-        help_text="Color secundario / acentos (hex).",
+        help_text="Hex. Acentos secundarios (ej. badges, CTAs alternos).",
     )
-    support_email = models.EmailField(blank=True)
-    marketplace_title = models.CharField(
+    support_email = models.EmailField(
+        "Correo de soporte",
+        blank=True,
+        help_text="Contacto público del operador (p. ej. pie de página o avisos).",
+    )
+    phone = models.CharField(
+        "Teléfono",
+        max_length=32,
+        blank=True,
+        help_text="Contacto telefónico público del operador (opcional).",
+    )
+    country = models.CharField(
+        "País",
         max_length=120,
         blank=True,
-        help_text="Título corto del marketplace (si vacío, se usa `name`).",
+        help_text="País de la sede o operación del owner (opcional).",
     )
-    marketplace_tagline = models.CharField(max_length=255, blank=True)
+    city = models.CharField(
+        "Ciudad",
+        max_length=120,
+        blank=True,
+        help_text="Ciudad de la sede o operación del owner (opcional).",
+    )
+    marketplace_title = models.CharField(
+        "Título del marketplace",
+        max_length=120,
+        blank=True,
+        help_text="Nombre corto que ve el visitante (si está vacío, se usa el nombre del workspace).",
+    )
+    marketplace_tagline = models.CharField(
+        "Eslogan / subtítulo",
+        max_length=255,
+        blank=True,
+        help_text="Frase corta opcional (propuesta de valor). Sale en la API pública; la interfaz del marketplace aún puede no mostrarla hasta conectarla en el front.",
+    )
 
     class Meta:
         ordering = ["slug"]

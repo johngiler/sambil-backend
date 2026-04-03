@@ -10,6 +10,9 @@ class AdSpaceAdminSerializer(serializers.ModelSerializer):
     shopping_center_name = serializers.CharField(
         source="shopping_center.name", read_only=True
     )
+    shopping_center_city = serializers.CharField(
+        source="shopping_center.city", read_only=True, allow_blank=True
+    )
 
     class Meta:
         model = AdSpace
@@ -19,6 +22,7 @@ class AdSpaceAdminSerializer(serializers.ModelSerializer):
             "shopping_center",
             "shopping_center_code",
             "shopping_center_name",
+            "shopping_center_city",
             "type",
             "title",
             "description",

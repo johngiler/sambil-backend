@@ -9,12 +9,12 @@ from apps.users.models import UserProfile
 def ensure_user_profile(sender, instance, created, **kwargs):
     if kwargs.get("raw"):
         return
+    # Plataforma (staff/superuser): sin fila en UserProfile — solo operan vía Django admin.
+    if instance.is_staff or instance.is_superuser:
+        UserProfile.objects.filter(user=instance).delete()
+        return
     profile, _ = UserProfile.objects.get_or_create(user=instance)
-    # Solo superusuario: is_staff es para /admin/ de Django, no debe pisar el rol de marketplace.
-    if instance.is_superuser:
-        if profile.role != UserProfile.Role.ADMIN:
-            profile.role = UserProfile.Role.ADMIN
-            profile.save(update_fields=["role"])
-    elif created:
+    # El rol de marketplace (admin owner / cliente) lo define el panel o datos migrados.
+    if created:
         profile.role = UserProfile.Role.CLIENT
         profile.save(update_fields=["role"])

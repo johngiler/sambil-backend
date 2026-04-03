@@ -57,8 +57,14 @@ def order_item_conflicts(
         if date_ranges_overlap(start, end, row.start_date, row.end_date):
             return True
 
-    blocks = AvailabilityBlock.objects.filter(ad_space_id=ad_space_id).filter(
-        type__in=(AvailabilityBlockType.OCCUPIED, AvailabilityBlockType.BLOCKED)
+    blocks = AvailabilityBlock.objects.filter(
+        ad_space_id=ad_space_id,
+        is_active=True,
+        type__in=(
+            AvailabilityBlockType.OCCUPIED,
+            AvailabilityBlockType.BLOCKED,
+            AvailabilityBlockType.RESERVED,
+        ),
     )
     for b in blocks.iterator():
         if date_ranges_overlap(start, end, b.start_date, b.end_date):

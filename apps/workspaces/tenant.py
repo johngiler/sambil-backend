@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 from apps.users.models import UserProfile
+from apps.users.utils import get_user_profile, is_platform_staff
 from apps.workspaces.models import Workspace
 
 RESERVED_SUBDOMAINS = frozenset({"www", "api", "cdn"})
@@ -50,12 +51,35 @@ def _slug_from_url(url: str, base_domain: str) -> str | None:
     return _slug_from_host(h, base_domain)
 
 
+def _tenant_apex_for_resolution() -> str:
+    """
+    Dominio apex para `{slug}.<apex>` (Host, Origin, Referer).
+    Si TENANT_BASE_DOMAIN está vacío y DEBUG=True, se asume `localhost` para probar
+    `http://nobis.localhost:3000` sin tocar el .env (el navegador envía ese Origin al API).
+    """
+    base = getattr(settings, "TENANT_BASE_DOMAIN", "").strip()
+    if base:
+        return base
+    if getattr(settings, "DEBUG", False):
+        return "localhost"
+    return ""
+
+
 def resolve_request_workspace(request) -> tuple[Workspace | None, str | None]:
     """
     Devuelve (workspace, error_code).
     error_code: 'unknown_slug' si se infirió un slug explícito que no existe en BD.
     """
-    base = getattr(settings, "TENANT_BASE_DOMAIN", "").strip()
+    header_slug = (
+        request.META.get("HTTP_X_WORKSPACE_SLUG") or request.META.get("HTTP_X_TENANT_SLUG") or ""
+    ).strip().lower()
+    if header_slug and header_slug not in RESERVED_SUBDOMAINS:
+        ws = Workspace.objects.filter(slug=header_slug, is_active=True).first()
+        if ws is None:
+            return None, "unknown_slug"
+        return ws, None
+
+    base = _tenant_apex_for_resolution()
     if not base:
         return get_default_workspace_safely(), None
 
@@ -110,9 +134,9 @@ def user_can_access_workspace(user, workspace: Workspace) -> bool:
     """¿Puede este usuario iniciar sesión (JWT) en el contexto de este owner?"""
     if not user or not user.is_authenticated or workspace is None:
         return False
-    if user.is_superuser:
-        return True
-    profile = getattr(user, "profile", None)
+    if is_platform_staff(user):
+        return False
+    profile = get_user_profile(user)
     if profile is None:
         return False
     if profile.role == UserProfile.Role.ADMIN:
@@ -125,15 +149,12 @@ def user_can_access_workspace(user, workspace: Workspace) -> bool:
 
 def enforce_workspace_for_non_superuser(request, explicit_workspace: Workspace | None) -> Workspace:
     """
-    Escrituras: admin comercial no puede mandar otro workspace que el del tenant resuelto.
-    Superusuario puede fijar workspace explícito.
+    Escrituras: el workspace efectivo debe coincidir con el tenant de la petición.
+    El staff de plataforma no usa esta API con JWT.
     """
     from rest_framework.exceptions import ValidationError
 
     req_ws = get_workspace_for_request(request)
-    user = getattr(request, "user", None)
-    if user is not None and getattr(user, "is_superuser", False):
-        return explicit_workspace or req_ws or get_default_workspace_safely()
     if req_ws is None:
         raise ValidationError(
             {"workspace": "No se pudo determinar el owner de esta petición (Host u Origin)."}

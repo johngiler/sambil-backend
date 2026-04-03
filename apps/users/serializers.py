@@ -11,8 +11,12 @@ from rest_framework_simplejwt.serializers import (
 )
 from rest_framework_simplejwt.settings import api_settings
 
-from apps.users.utils import get_user_role
-from apps.workspaces.tenant import get_workspace_for_request, user_can_access_workspace
+from apps.users.utils import get_user_profile, get_user_role, is_platform_staff
+from apps.workspaces.tenant import (
+    default_workspace_slug,
+    get_workspace_for_request,
+    user_can_access_workspace,
+)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -47,11 +51,11 @@ class UserMeSerializer(serializers.ModelSerializer):
         return get_user_role(obj)
 
     def get_client_id(self, obj):
-        p = getattr(obj, "profile", None)
+        p = get_user_profile(obj)
         return p.client_id if p and p.client_id else None
 
     def get_cover_image(self, obj):
-        p = getattr(obj, "profile", None)
+        p = get_user_profile(obj)
         if p and p.cover_image:
             return p.cover_image.url
         return None
@@ -101,8 +105,14 @@ class CustomTokenRefreshSerializer(TokenRefreshSerializer):
             token_ws = default_workspace_slug()
         if ws is not None and token_ws != ws.slug:
             raise AuthenticationFailed(
-                "Token no válido para este sitio.",
+                "Sesión no válida. Inicia sesión de nuevo.",
                 "token_workspace_mismatch",
+            )
+
+        if user is not None and is_platform_staff(user):
+            raise AuthenticationFailed(
+                "Sesión no válida. Inicia sesión de nuevo.",
+                "platform_staff_forbidden",
             )
 
         access = refresh.access_token
@@ -149,11 +159,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, str]:
         data = TokenObtainSerializer.validate(self, attrs)
+        if is_platform_staff(self.user):
+            raise AuthenticationFailed(
+                self.default_error_messages["no_active_account"],
+                "platform_staff_forbidden",
+            )
         request = self.context.get("request")
         ws = get_workspace_for_request(request) if request else None
         if ws is not None and not user_can_access_workspace(self.user, ws):
             raise AuthenticationFailed(
-                "Tu cuenta no pertenece a este sitio.",
+                self.default_error_messages["no_active_account"],
                 "workspace_forbidden",
             )
 

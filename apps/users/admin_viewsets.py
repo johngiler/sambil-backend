@@ -21,12 +21,19 @@ class UserAdminViewSet(AdminModelViewSet):
         return ctx
 
     def get_queryset(self):
-        qs = User.objects.select_related("profile", "profile__client").order_by("username")
+        # Solo cuentas de marketplace (niveles 2 y 3); no operadores Django (nivel 1).
+        qs = (
+            User.objects.select_related("profile", "profile__client")
+            .filter(is_staff=False, is_superuser=False)
+            .order_by("username")
+        )
         ws = get_workspace_for_request(self.request)
-        if ws is not None and not self.request.user.is_superuser:
-            qs = qs.filter(
-                Q(profile__workspace=ws) | Q(profile__client__workspace=ws)
-            ).distinct()
+        if ws is None:
+            # Sin tenant resuelto no debe listarse nadie (evita filtrar por todos los owners).
+            return qs.none()
+        qs = qs.filter(
+            Q(profile__workspace=ws) | Q(profile__client__workspace=ws)
+        ).distinct()
         if self.action == "list":
             role = self.request.query_params.get("role")
             if role and role != "all":

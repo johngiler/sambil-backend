@@ -1,25 +1,16 @@
-from decimal import Decimal
-
 from django.db.models import Q
-from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.orders.models import Order, OrderStatus
+from apps.orders.models import Order
 from apps.orders.serializers import (
     OrderAdminPatchSerializer,
     OrderCreateSerializer,
     OrderSerializer,
 )
-from apps.orders.services import log_order_status_transition
-from apps.orders.validators import (
-    contract_meets_min_months,
-    hold_expires_at_from_now,
-    line_subtotal,
-    order_item_conflicts,
-)
+from apps.orders.services import submit_draft_order
 from apps.users.utils import get_marketplace_client, user_is_admin
 from apps.workspaces.tenant import get_workspace_for_request
 
@@ -45,9 +36,7 @@ class OrderViewSet(
         )
         ws = get_workspace_for_request(self.request)
         if user_is_admin(self.request.user):
-            if self.request.user.is_superuser:
-                pass
-            elif ws is not None:
+            if ws is not None:
                 qs = qs.filter(client__workspace=ws)
             else:
                 return qs.none()
@@ -92,7 +81,7 @@ class OrderViewSet(
     def partial_update(self, request, *args, **kwargs):
         if not user_is_admin(request.user):
             return Response(
-                {"detail": "Solo administradores pueden actualizar el estado de órdenes."},
+                {"detail": "No tienes permiso para esta acción."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         instance = self.get_object()
@@ -105,7 +94,7 @@ class OrderViewSet(
     def update(self, request, *args, **kwargs):
         if not user_is_admin(request.user):
             return Response(
-                {"detail": "Solo administradores pueden actualizar el estado de órdenes."},
+                {"detail": "No tienes permiso para esta acción."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         instance = self.get_object()
@@ -117,64 +106,14 @@ class OrderViewSet(
 
     @action(detail=True, methods=["post"], url_path="submit")
     def submit(self, request, pk=None):
+        from rest_framework import serializers as drf_serializers
+
         order = self.get_object()
-        if order.status != OrderStatus.DRAFT:
-            return Response(
-                {"detail": "Solo se pueden enviar órdenes en borrador."},
-                status=status.HTTP_400_BAD_REQUEST,
+        try:
+            submit_draft_order(
+                order,
+                actor=request.user if request.user.is_authenticated else None,
             )
-
-        for item in order.items.select_related("ad_space"):
-            if not contract_meets_min_months(item.start_date, item.end_date):
-                return Response(
-                    {
-                        "detail": f"La línea {item.ad_space.code} no cumple el mínimo de 5 meses.",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if order_item_conflicts(
-                item.ad_space_id,
-                item.start_date,
-                item.end_date,
-                exclude_order_id=order.id,
-            ):
-                return Response(
-                    {
-                        "detail": (
-                            f"Las fechas de {item.ad_space.code} chocan con otra reserva o bloqueo."
-                        ),
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        total = Decimal("0")
-        for item in order.items.select_related("ad_space"):
-            monthly = item.ad_space.monthly_price_usd
-            sub = line_subtotal(monthly, item.start_date, item.end_date)
-            item.monthly_price = monthly
-            item.subtotal = sub
-            item.save(update_fields=["monthly_price", "subtotal"])
-            total += sub
-        order.total_amount = total.quantize(Decimal("0.01"))
-        order.status = OrderStatus.SUBMITTED
-        order.submitted_at = timezone.now()
-        order.hold_expires_at = hold_expires_at_from_now(72)
-        order.save(
-            update_fields=[
-                "total_amount",
-                "status",
-                "submitted_at",
-                "hold_expires_at",
-            ]
-        )
-
-        log_order_status_transition(
-            order,
-            OrderStatus.DRAFT,
-            OrderStatus.SUBMITTED,
-            actor=request.user if request.user.is_authenticated else None,
-            note="Solicitud enviada por el cliente.",
-        )
-
-        order.refresh_from_db()
+        except drf_serializers.ValidationError as e:
+            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
         return Response(OrderSerializer(order).data)

@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
 from apps.clients.models import Client, ClientStatus
+from apps.users.models import UserProfile
+from apps.users.utils import is_platform_staff
 from apps.workspaces.tenant import get_workspace_for_request
 
 
@@ -52,6 +54,8 @@ class MyCompanySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context["request"]
+        if is_platform_staff(request.user):
+            raise serializers.ValidationError({"detail": "No se pudo completar la solicitud."})
         ws = get_workspace_for_request(request)
         if not ws:
             raise serializers.ValidationError(
@@ -64,7 +68,7 @@ class MyCompanySerializer(serializers.ModelSerializer):
             workspace=ws,
             **validated_data,
         )
-        prof = request.user.profile
+        prof, _ = UserProfile.objects.get_or_create(user=request.user)
         prof.client = c
         prof.save(update_fields=["client"])
         return c

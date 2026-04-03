@@ -5,6 +5,7 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -65,7 +66,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -110,15 +111,22 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STATICFILES_DIRS = [BASE_DIR / "static"]
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Enlaces en correos (activación de cuenta tras aprobar orden). Sin barra final.
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://127.0.0.1:3000").strip().rstrip("/")
+
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@localhost")
 
 # SaaS: slug del owner cuando no hay otro contexto (subdominio / header) en la petición.
 DEFAULT_WORKSPACE_SLUG = os.environ.get("DEFAULT_WORKSPACE_SLUG", "sambil").strip().lower() or "sambil"
 # Dominio apex del producto (ej. publivalla.com). `{slug}.TENANT_BASE_DOMAIN` identifica al owner.
 # El API puede ser siempre api.publivalla.com; el tenant se infiere por Origin/Referer del SPA.
-# Vacío en local = un solo tenant vía DEFAULT_WORKSPACE_SLUG (mismo slug que en BD).
+# Vacío + DEBUG: el backend infiere apex `localhost` (Origin tipo http://nobis.localhost:3000).
+# En producción definí siempre el apex real (p. ej. publivalla.com).
 TENANT_BASE_DOMAIN = os.environ.get("TENANT_BASE_DOMAIN", "").strip().lower()
 
 if DEBUG:
@@ -140,6 +148,9 @@ else:
             o.strip() for o in _csrf_origins.split(",") if o.strip()
         ]
 
+# Cabeceras del SPA (`clientTenantSlug`) cuando el API va en host sin subdominio (p. ej. 127.0.0.1:8000).
+CORS_ALLOW_HEADERS = (*default_headers, "x-workspace-slug", "x-tenant-slug")
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "apps.users.authentication.TenantJWTAuthentication",
@@ -147,6 +158,12 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.AllowAny",),
     "DEFAULT_PAGINATION_CLASS": "apps.common.pagination.StandardPagination",
     "PAGE_SIZE": 20,
+    "DEFAULT_THROTTLE_RATES": {
+        "guest_checkout": "30/hour",
+        "guest_checkout_email": "120/hour",
+        "activate_client": "20/hour",
+        "validate_password": "120/hour",
+    },
 }
 
 SIMPLE_JWT = {

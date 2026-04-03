@@ -8,7 +8,7 @@ from apps.clients.models import Client
 from apps.orders.models import Order, OrderItem, OrderStatus, OrderStatusEvent
 from apps.orders.services import log_order_status_transition
 from apps.orders.validators import contract_meets_min_months, line_subtotal
-from apps.users.utils import get_marketplace_client, user_is_admin
+from apps.users.utils import get_marketplace_client, is_platform_staff, user_is_admin
 from apps.workspaces.tenant import get_workspace_for_request
 
 
@@ -19,6 +19,25 @@ def _status_label(value: str) -> str:
         return OrderStatus(value).label
     except ValueError:
         return value
+
+
+class OrderClientSnapshotSerializer(serializers.ModelSerializer):
+    """Datos de la empresa en respuestas de pedido (admin y cliente)."""
+
+    class Meta:
+        model = Client
+        fields = (
+            "id",
+            "company_name",
+            "rif",
+            "contact_name",
+            "email",
+            "phone",
+            "address",
+            "city",
+            "status",
+        )
+        read_only_fields = fields
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -80,6 +99,7 @@ class OrderSerializer(serializers.ModelSerializer):
     client_company_name = serializers.CharField(
         source="client.company_name", read_only=True
     )
+    client_detail = OrderClientSnapshotSerializer(source="client", read_only=True)
 
     class Meta:
         model = Order
@@ -87,6 +107,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "id",
             "client",
             "client_company_name",
+            "client_detail",
             "status",
             "status_label",
             "total_amount",
@@ -117,6 +138,8 @@ class OrderAdminPatchSerializer(serializers.ModelSerializer):
         fields = ("status",)
 
     def update(self, instance, validated_data):
+        from apps.clients.notifications import notify_client_after_order_client_approved
+
         prev = instance.status
         instance = super().update(instance, validated_data)
         if prev != instance.status:
@@ -128,6 +151,11 @@ class OrderAdminPatchSerializer(serializers.ModelSerializer):
                 instance.status,
                 actor=actor,
             )
+            if (
+                instance.status == OrderStatus.CLIENT_APPROVED
+                and prev != OrderStatus.CLIENT_APPROVED
+            ):
+                notify_client_after_order_client_approved(instance)
         return instance
 
 
@@ -174,44 +202,38 @@ class OrderCreateSerializer(serializers.Serializer):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             raise serializers.ValidationError("Debes iniciar sesión para crear una orden.")
+        if is_platform_staff(request.user):
+            raise serializers.ValidationError({"detail": "No se pudo completar la operación."})
 
         ws = get_workspace_for_request(request)
 
         if user_is_admin(request.user):
-            if not data.get("client"):
+            raise serializers.ValidationError({"detail": "No se pudo completar la operación."})
+
+        ce = get_marketplace_client(request.user)
+        if ce is None:
+            raise serializers.ValidationError(
+                {
+                    "detail": "Completa los datos de tu empresa (Mi cuenta) antes de pedir una reserva."
+                }
+            )
+        data["client"] = ce
+        for row in data["items"]:
+            sc = row["ad_space"].shopping_center
+            if not shopping_center_allows_public_catalog(sc):
                 raise serializers.ValidationError(
-                    {"client": "Como administrador, indica el cliente (ID) de la orden."}
+                    {"items": f"La toma {row['ad_space'].code} no está disponible en el marketplace público."}
                 )
-            cli = data["client"]
-            if ws is not None and not request.user.is_superuser and cli.workspace_id != ws.id:
-                raise serializers.ValidationError(
-                    {"client": "Este cliente no pertenece al owner de este sitio."}
-                )
-        else:
-            ce = get_marketplace_client(request.user)
-            if ce is None:
+            if ce.workspace_id != sc.workspace_id:
                 raise serializers.ValidationError(
                     {
-                        "detail": "Completa los datos de tu empresa (Mi cuenta) antes de pedir una reserva."
+                        "items": f"La toma {row['ad_space'].code} no pertenece al mismo owner que tu empresa."
                     }
                 )
-            data["client"] = ce
-            for row in data["items"]:
-                sc = row["ad_space"].shopping_center
-                if not shopping_center_allows_public_catalog(sc):
-                    raise serializers.ValidationError(
-                        {"items": f"La toma {row['ad_space'].code} no está disponible en el marketplace público."}
-                    )
-                if ce.workspace_id != sc.workspace_id:
-                    raise serializers.ValidationError(
-                        {
-                            "items": f"La toma {row['ad_space'].code} no pertenece al mismo owner que tu empresa."
-                        }
-                    )
 
         for row in data["items"]:
             sc = row["ad_space"].shopping_center
-            if ws is not None and not request.user.is_superuser and sc.workspace_id != ws.id:
+            if ws is not None and sc.workspace_id != ws.id:
                 raise serializers.ValidationError(
                     {"items": f"La toma {row['ad_space'].code} no pertenece al owner de este sitio."}
                 )

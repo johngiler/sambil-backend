@@ -1,28 +1,78 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from apps.clients.models import Client
+from apps.clients.notifications import (
+    client_has_marketplace_user,
+    parse_client_activation_token,
+)
+from apps.users.admin_serializers import revoke_django_privileges
 from apps.users.models import UserProfile
 from apps.users.serializers import (
     UserMeSerializer,
     UserMeUpdateSerializer,
 )
+from apps.users.password_policy import marketplace_password_policy_errors
+from apps.users.utils import is_platform_staff
 
 User = get_user_model()
+
+
+class ValidatePasswordView(APIView):
+    """
+    Comprueba la contraseña con las mismas reglas que registro / checkout invitado.
+    POST { "password": "..." } → 200 { "valid": true } o 400 { "password": ["..."] }.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "validate_password"
+
+    def post(self, request, *args, **kwargs):
+        raw = request.data.get("password")
+        if raw is not None and not isinstance(raw, str):
+            return Response(
+                {"password": ["El formato de la contraseña no es válido."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        password = (raw or "").strip()
+        if not password:
+            return Response(
+                {"password": ["Indica una contraseña."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        errs = marketplace_password_policy_errors(password)
+        if errs:
+            return Response({"password": errs}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"valid": True}, status=status.HTTP_200_OK)
 
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if is_platform_staff(request.user):
+            return Response(
+                {"detail": "No autorizado."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         user = User.objects.select_related("profile", "profile__client").get(pk=request.user.pk)
         return Response(UserMeSerializer(user, context={"request": request}).data)
 
     def patch(self, request):
+        if is_platform_staff(request.user):
+            return Response(
+                {"detail": "No autorizado."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         user = User.objects.select_related("profile", "profile__client").get(pk=request.user.pk)
         profile, _ = UserProfile.objects.get_or_create(user=user)
 
@@ -70,3 +120,79 @@ class MePasswordView(APIView):
         request.user.set_password(new_password)
         request.user.save()
         return Response({"detail": "Contraseña actualizada."})
+
+
+class ActivateClientAccountView(APIView):
+    """
+    Invitado que compró sin cuenta: tras aprobar la orden recibe un enlace firmado.
+    POST { token, password } crea el usuario marketplace vinculado a la empresa (Client).
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "activate_client"
+
+    def post(self, request, *args, **kwargs):
+        token = (request.data.get("token") or "").strip()
+        password = (request.data.get("password") or "").strip()
+        if not token:
+            return Response({"detail": "Falta el token del enlace."}, status=status.HTTP_400_BAD_REQUEST)
+        if len(password) < 8:
+            return Response(
+                {"detail": "La contraseña debe tener al menos 8 caracteres."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            client_id = parse_client_activation_token(token)
+        except signing.SignatureExpired:
+            return Response(
+                {"detail": "El enlace caducó. Solicita uno nuevo al equipo de soporte."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except signing.BadSignature:
+            return Response({"detail": "Enlace no válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        client = get_object_or_404(Client, pk=client_id)
+        if client_has_marketplace_user(client):
+            return Response(
+                {
+                    "detail": "Esta empresa ya tiene acceso. Inicia sesión con tu correo.",
+                    "code": "already_active",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        email = client.email.strip().lower()
+        if not email:
+            return Response(
+                {"detail": "La ficha de empresa no tiene correo. Contacta a soporte."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if User.objects.filter(username__iexact=email).exists() or User.objects.filter(
+            email__iexact=email
+        ).exists():
+            return Response(
+                {
+                    "detail": "Ya existe un usuario con este correo. Inicia sesión.",
+                    "code": "email_taken",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        policy_errs = marketplace_password_policy_errors(password)
+        if policy_errs:
+            return Response({"password": policy_errs}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create_user(username=email[:150], email=email, password=password)
+        profile = user.profile
+        profile.role = UserProfile.Role.CLIENT
+        profile.client = client
+        profile.workspace = client.workspace
+        profile.save()
+        revoke_django_privileges(user)
+
+        return Response(
+            {"detail": "Cuenta creada. Ya puedes iniciar sesión con tu correo y contraseña."},
+            status=status.HTTP_201_CREATED,
+        )

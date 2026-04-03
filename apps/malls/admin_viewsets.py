@@ -30,7 +30,7 @@ class ShoppingCenterAdminViewSet(AdminModelViewSet):
     def get_queryset(self):
         qs = ShoppingCenter.objects.all().order_by("listing_order", "code")
         ws = get_workspace_for_request(self.request)
-        if ws is not None and not self.request.user.is_superuser:
+        if ws is not None:
             qs = qs.filter(workspace=ws)
         if self.action == "list":
             active = self.request.query_params.get("active", "all")

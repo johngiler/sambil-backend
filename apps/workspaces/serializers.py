@@ -50,3 +50,22 @@ class WorkspacePublicSerializer(serializers.ModelSerializer):
 
     def get_favicon_url(self, obj):
         return self._absolute_media(obj, "favicon")
+
+
+class WorkspaceMeUpdateSerializer(serializers.ModelSerializer):
+    """Actualización por el admin del owner; `slug` no se expone aquí (solo lectura en otro canal)."""
+
+    class Meta:
+        model = Workspace
+        fields = (
+            "name",
+            "legal_name",
+            "primary_color",
+            "secondary_color",
+            "support_email",
+            "phone",
+            "country",
+            "city",
+            "marketplace_title",
+            "marketplace_tagline",
+        )

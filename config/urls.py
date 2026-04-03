@@ -24,7 +24,7 @@ from apps.users.views import (
     MeView,
     ValidatePasswordView,
 )
-from apps.workspaces.views import WorkspaceCurrentView
+from apps.workspaces.views import MyWorkspaceView, WorkspaceCurrentView
 
 router = DefaultRouter()
 router.register(r"centers", ShoppingCenterViewSet, basename="center")
@@ -53,6 +53,7 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("api/catalog/", include(catalog_router.urls)),
     path("api/me/company/", MyCompanyView.as_view(), name="my-company"),
+    path("api/me/workspace/", MyWorkspaceView.as_view(), name="me-workspace"),
     path("api/workspace/current/", WorkspaceCurrentView.as_view(), name="workspace-current"),
     path("api/auth/me/", MeView.as_view(), name="auth-me"),
     path("api/auth/me/password/", MePasswordView.as_view(), name="auth-me-password"),

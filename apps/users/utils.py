@@ -27,8 +27,9 @@ def get_user_profile(user):
 
 def get_marketplace_client(user):
     """
-    Empresa (Client) asociada al usuario vía UserProfile.client.
-    Solo aplica a usuarios con rol cliente marketplace.
+    Empresa (Client) asociada al usuario vía UserProfile.client (como mucho una por usuario).
+    Solo aplica a usuarios con rol cliente marketplace. Los borradores y envíos de pedido usan
+    siempre este cliente, no hay selección entre varias empresas por usuario.
     """
     if not user or not user.is_authenticated or is_platform_staff(user):
         return None

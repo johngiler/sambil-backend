@@ -24,6 +24,8 @@ def _status_label(value: str) -> str:
 class OrderClientSnapshotSerializer(serializers.ModelSerializer):
     """Datos de la empresa en respuestas de pedido (admin y cliente)."""
 
+    status_label = serializers.SerializerMethodField()
+
     class Meta:
         model = Client
         fields = (
@@ -36,8 +38,12 @@ class OrderClientSnapshotSerializer(serializers.ModelSerializer):
             "address",
             "city",
             "status",
+            "status_label",
         )
         read_only_fields = fields
+
+    def get_status_label(self, obj):
+        return obj.get_status_display()
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -46,6 +52,10 @@ class OrderItemSerializer(serializers.ModelSerializer):
     shopping_center_name = serializers.CharField(
         source="ad_space.shopping_center.name", read_only=True
     )
+    shopping_center_code = serializers.CharField(
+        source="ad_space.shopping_center.code", read_only=True
+    )
+    ad_space_cover_image = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
@@ -54,12 +64,20 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "ad_space",
             "ad_space_code",
             "ad_space_title",
+            "ad_space_cover_image",
+            "shopping_center_code",
             "shopping_center_name",
             "start_date",
             "end_date",
             "monthly_price",
             "subtotal",
         )
+
+    def get_ad_space_cover_image(self, obj):
+        img = obj.ad_space.cover_image
+        if not img:
+            return None
+        return img.url
 
 
 class OrderStatusEventSerializer(serializers.ModelSerializer):
@@ -217,6 +235,7 @@ class OrderCreateSerializer(serializers.Serializer):
                     "detail": "Completa los datos de tu empresa (Mi cuenta) antes de pedir una reserva."
                 }
             )
+        # Siempre la empresa del perfil; un usuario no puede enviar otro client_id en el cuerpo.
         data["client"] = ce
         for row in data["items"]:
             sc = row["ad_space"].shopping_center

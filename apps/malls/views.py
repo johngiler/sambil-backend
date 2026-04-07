@@ -8,20 +8,24 @@ from apps.workspaces.tenant import get_workspace_for_request
 
 class ShoppingCenterViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Listado público de centros para la portada (`on_homepage`).
+    Listado público de centros filtrado por `on_homepage` (la portada del sitio lista tomas, no centros).
     Detalle por código (`/api/centers/SCC/`).
 
     Listado: filtros opcionales `search`, `catalog_status` (all|available|soon),
     `location` (all|caracas|other). Paginación estándar (20 por página).
     """
 
-    queryset = ShoppingCenter.objects.filter(on_homepage=True).order_by("listing_order", "code")
+    queryset = ShoppingCenter.objects.filter(on_homepage=True).order_by(
+        "listing_order", "-created_at", "code"
+    )
     serializer_class = ShoppingCenterSerializer
     lookup_field = "code"
     lookup_value_regex = r"[A-Za-z0-9]+"
 
     def get_queryset(self):
-        qs = ShoppingCenter.objects.filter(on_homepage=True).order_by("listing_order", "code")
+        qs = ShoppingCenter.objects.filter(on_homepage=True).order_by(
+            "listing_order", "-created_at", "code"
+        )
         ws = get_workspace_for_request(self.request)
         if ws is not None:
             qs = qs.filter(workspace=ws)
@@ -55,4 +59,4 @@ class ShoppingCenterViewSet(viewsets.ReadOnlyModelViewSet):
                 | Q(district__icontains="caracas")
             )
             qs = qs.exclude(caracas_q)
-        return qs
+        return qs.order_by("listing_order", "-created_at", "code")

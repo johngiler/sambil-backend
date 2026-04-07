@@ -11,6 +11,8 @@ class ClientAdminSerializer(serializers.ModelSerializer):
 
     linked_user_ids = serializers.SerializerMethodField()
     linked_usernames = serializers.SerializerMethodField()
+    orders_count = serializers.SerializerMethodField()
+    status_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Client
@@ -19,6 +21,7 @@ class ClientAdminSerializer(serializers.ModelSerializer):
             "workspace",
             "linked_user_ids",
             "linked_usernames",
+            "orders_count",
             "company_name",
             "rif",
             "contact_name",
@@ -28,6 +31,7 @@ class ClientAdminSerializer(serializers.ModelSerializer):
             "city",
             "notes",
             "status",
+            "status_label",
             "cover_image",
             "is_active",
             "created_at",
@@ -46,11 +50,32 @@ class ClientAdminSerializer(serializers.ModelSerializer):
         profiles = obj.member_profiles.select_related("user").order_by("user__username")
         return [p.user.username for p in profiles]
 
+    def get_orders_count(self, obj):
+        if hasattr(obj, "_orders_count"):
+            return obj._orders_count
+        return obj.orders.count()
+
+    def get_status_label(self, obj):
+        return obj.get_status_display()
+
 
 class MyCompanySerializer(serializers.ModelSerializer):
+    rif = serializers.CharField(
+        max_length=32,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
     class Meta:
         model = Client
         fields = ("company_name", "rif", "contact_name", "email", "phone", "address", "city")
+
+    def validate_rif(self, value):
+        if value is None:
+            return None
+        s = str(value).strip()
+        return s if s else None
 
     def create(self, validated_data):
         request = self.context["request"]
@@ -64,7 +89,7 @@ class MyCompanySerializer(serializers.ModelSerializer):
                 }
             )
         c = Client.objects.create(
-            status=ClientStatus.PENDING,
+            status=ClientStatus.ACTIVE,
             workspace=ws,
             **validated_data,
         )

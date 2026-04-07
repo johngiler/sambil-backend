@@ -15,13 +15,20 @@ from apps.ad_spaces.views import AdSpaceViewSet
 from apps.clients.views import ClientViewSet, MyCompanyView
 from apps.malls.admin_viewsets import ShoppingCenterAdminViewSet
 from apps.malls.views import ShoppingCenterViewSet
-from apps.orders.guest_checkout import GuestCheckoutEmailCheckView, GuestCheckoutView
+from apps.orders.guest_checkout import (
+    GuestCheckoutClientEmailCheckView,
+    GuestCheckoutDatosValidateView,
+    GuestCheckoutEmailCheckView,
+    GuestCheckoutView,
+)
 from apps.orders.views import OrderViewSet
 from apps.users.admin_viewsets import UserAdminViewSet
 from apps.users.views import (
     ActivateClientAccountView,
     MePasswordView,
     MeView,
+    PasswordSetupIntentView,
+    SetInitialPasswordView,
     ValidatePasswordView,
 )
 from apps.workspaces.views import MyWorkspaceView, WorkspaceCurrentView
@@ -47,9 +54,29 @@ urlpatterns = [
         GuestCheckoutEmailCheckView.as_view(),
         name="guest-checkout-check-email",
     ),
+    path(
+        "api/checkout/guest/check-client-email/",
+        GuestCheckoutClientEmailCheckView.as_view(),
+        name="guest-checkout-check-client-email",
+    ),
+    path(
+        "api/checkout/guest/validate-datos/",
+        GuestCheckoutDatosValidateView.as_view(),
+        name="guest-checkout-validate-datos",
+    ),
     path("api/checkout/guest/", GuestCheckoutView.as_view(), name="guest-checkout"),
     path("api/auth/activate-client/", ActivateClientAccountView.as_view(), name="activate-client"),
     path("api/auth/validate-password/", ValidatePasswordView.as_view(), name="validate-password"),
+    path(
+        "api/auth/password-setup-intent/",
+        PasswordSetupIntentView.as_view(),
+        name="password-setup-intent",
+    ),
+    path(
+        "api/auth/set-initial-password/",
+        SetInitialPasswordView.as_view(),
+        name="set-initial-password",
+    ),
     path("api/", include(router.urls)),
     path("api/catalog/", include(catalog_router.urls)),
     path("api/me/company/", MyCompanyView.as_view(), name="my-company"),

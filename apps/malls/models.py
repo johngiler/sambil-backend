@@ -32,11 +32,11 @@ class ShoppingCenter(TimeStampedActiveModel):
     on_homepage = models.BooleanField(
         default=True,
         db_index=True,
-        help_text="Si se lista en la portada del marketplace.",
+        help_text="Si se incluye en el listado público GET /api/centers/ (la portada del sitio lista tomas).",
     )
     listing_order = models.PositiveSmallIntegerField(
         default=0,
-        help_text="Orden en portada (menor primero).",
+        help_text="Orden en ese listado de centros (menor primero).",
     )
     marketplace_catalog_enabled = models.BooleanField(
         default=False,

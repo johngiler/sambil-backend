@@ -8,6 +8,7 @@ Ejecutar desde backend:
 
 Idempotencia: antes de crear, elimina CC del workspace cuyo código coincide con el patrón
 generado desde el slug (máx. 8 caracteres) + índice 01–10; las tomas se borran en cascada.
+Códigos de toma: {código_CC}-T{n} (nomenclatura fase 1).
 
 Variables opcionales:
   SEED_WORKSPACE_SLUG — si está definido, solo ese slug (debe existir y estar activo).
@@ -215,8 +216,8 @@ def center_code_for(ws: Workspace, index_1_to_10: int) -> str:
 
 
 def ad_space_code(center_code: str, index_1_to_10: int) -> str:
-    """Código de toma único global ≤32."""
-    return f"{center_code}-{index_1_to_10:02d}"
+    """Código de toma: {CC}-T{n} (nomenclatura fase 1), único global ≤32."""
+    return f"{str(center_code).strip().upper()}-T{index_1_to_10}"
 
 
 def brand_display_name(ws: Workspace) -> str:

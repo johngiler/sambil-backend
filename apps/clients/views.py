@@ -1,18 +1,27 @@
-from django.db.models import Prefetch, Q
+from urllib.parse import quote
+
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Prefetch, Q
 from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.clients.models import Client
+from apps.clients.notifications import client_has_marketplace_user
 from apps.clients.serializers import (
     ClientAdminSerializer,
     MyCompanySerializer,
 )
+from apps.users.admin_serializers import revoke_django_privileges
 from apps.users.base_viewsets import AdminModelViewSet
 from apps.users.models import UserProfile
+from apps.users.password_setup_tokens import build_user_password_setup_token
 from apps.users.utils import get_marketplace_client, user_is_admin
 from apps.workspaces.tenant import enforce_workspace_for_non_superuser, get_workspace_for_request
+
+User = get_user_model()
 
 
 class ClientViewSet(AdminModelViewSet):
@@ -37,11 +46,16 @@ class ClientViewSet(AdminModelViewSet):
         serializer.save(**extra)
 
     def get_queryset(self):
-        qs = Client.objects.all().order_by("company_name").prefetch_related(
-            Prefetch(
-                "member_profiles",
-                queryset=UserProfile.objects.only("id", "user_id", "client_id"),
-            ),
+        qs = (
+            Client.objects.all()
+            .order_by("-created_at", "-id")
+            .annotate(_orders_count=Count("orders"))
+            .prefetch_related(
+                Prefetch(
+                    "member_profiles",
+                    queryset=UserProfile.objects.only("id", "user_id", "client_id"),
+                ),
+            )
         )
         ws = get_workspace_for_request(self.request)
         if ws is not None:
@@ -59,6 +73,75 @@ class ClientViewSet(AdminModelViewSet):
                     | Q(contact_name__icontains=search)
                 )
         return qs
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        n = instance.orders.count()
+        if n > 0:
+            return Response(
+                {
+                    "detail": (
+                        f"Este cliente tiene {n} pedido(s) relacionado(s). "
+                        "Elimina o reasigna esos pedidos antes de borrar la empresa."
+                    ),
+                    "code": "client_has_orders",
+                    "orders_count": n,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], url_path="generate-user")
+    def generate_user(self, request, pk=None):
+        """
+        Crea un usuario marketplace (sin contraseña) con el correo de la empresa y lo vincula.
+        Respuesta incluye token y datos para armar el enlace `/registro?...` en el front.
+        """
+        client = self.get_object()
+        if client_has_marketplace_user(client):
+            return Response(
+                {
+                    "detail": "Esta empresa ya tiene al menos un usuario vinculado.",
+                    "code": "already_linked",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        email = (client.email or "").strip().lower()
+        if not email:
+            return Response(
+                {"detail": "La empresa no tiene correo. Complétalo antes de generar usuario."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if User.objects.filter(Q(username__iexact=email) | Q(email__iexact=email)).exists():
+            return Response(
+                {
+                    "detail": "Ya existe un usuario con este correo. Usa la sección Usuarios o otro correo.",
+                    "code": "email_taken",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        username = email[: User._meta.get_field("username").max_length]
+        user = User(username=username, email=email)
+        user.set_unusable_password()
+        user.save()
+        profile = user.profile
+        profile.role = UserProfile.Role.CLIENT
+        profile.client = client
+        profile.workspace = client.workspace
+        profile.full_clean()
+        profile.save()
+        revoke_django_privileges(user)
+        token = build_user_password_setup_token(user.pk)
+        q = f"token={quote(token, safe='')}&email={quote(email, safe='')}"
+        return Response(
+            {
+                "user_id": user.id,
+                "email": email,
+                "token": token,
+                "registration_query": q,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class MyCompanyView(APIView):

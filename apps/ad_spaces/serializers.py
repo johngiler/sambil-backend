@@ -19,6 +19,7 @@ class AdSpaceSerializer(serializers.ModelSerializer):
     catalog_public = serializers.SerializerMethodField(read_only=True)
     availability_year = serializers.SerializerMethodField(read_only=True)
     months_occupied = serializers.SerializerMethodField(read_only=True)
+    status_label = serializers.SerializerMethodField()
 
     class Meta:
         model = AdSpace
@@ -43,6 +44,7 @@ class AdSpaceSerializer(serializers.ModelSerializer):
             "level",
             "monthly_price_usd",
             "status",
+            "status_label",
             "cover_image",
             "venue_zone",
             "double_sided",
@@ -62,3 +64,6 @@ class AdSpaceSerializer(serializers.ModelSerializer):
     def get_months_occupied(self, obj):
         y = self.get_availability_year(obj)
         return year_months_occupied(obj.pk, y)
+
+    def get_status_label(self, obj):
+        return obj.get_status_display()

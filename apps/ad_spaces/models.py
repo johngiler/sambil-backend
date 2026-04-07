@@ -23,14 +23,19 @@ class AdSpaceType(models.TextChoices):
 
 
 class AdSpaceStatus(models.TextChoices):
-    AVAILABLE = "available", "Available"
-    RESERVED = "reserved", "Reserved"
-    OCCUPIED = "occupied", "Occupied"
-    BLOCKED = "blocked", "Blocked"
+    AVAILABLE = "available", "Disponible"
+    RESERVED = "reserved", "Reservado"
+    OCCUPIED = "occupied", "Ocupado"
+    BLOCKED = "blocked", "Bloqueado"
 
 
 class AdSpace(TimeStampedActiveModel):
-    code = models.CharField(max_length=32, unique=True, db_index=True)
+    code = models.CharField(
+        max_length=32,
+        unique=True,
+        db_index=True,
+        help_text="Nomenclatura: {código_centro}-T{número}[sufijo]. Ej. SCC-T1, SLC-T1A.",
+    )
     shopping_center = models.ForeignKey(
         "malls.ShoppingCenter",
         on_delete=models.CASCADE,

@@ -4,7 +4,16 @@ from django.db import models
 
 
 class UserProfile(models.Model):
-    """Rol de aplicación (JWT + permisos DRF). Distinto de is_staff de Django."""
+    """
+    Rol de aplicación (JWT + permisos DRF). Distinto de is_staff de Django.
+
+    Reglas de vínculo con empresa (Client):
+    - Un usuario tiene como máximo un perfil (`user` es OneToOne) y ese perfil apunta a como mucho
+      una empresa (`client`). Así cada usuario representa una sola empresa al reservar; el pedido
+      usa siempre `get_marketplace_client(user)` → ese único `client`.
+    - Una empresa puede tener muchos perfiles/usuarios (`Client.member_profiles`): varias cuentas
+      pueden operar para la misma razón social.
+    """
 
     class Role(models.TextChoices):
         ADMIN = "admin", "Administrador marketplace"
@@ -32,7 +41,8 @@ class UserProfile(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="member_profiles",
-        help_text="Obligatorio si el rol es cliente marketplace (misma empresa que el usuario).",
+        help_text="Empresa que este usuario representa (como mucho una). Obligatorio si el rol es "
+        "cliente marketplace. Varios usuarios pueden compartir la misma empresa.",
     )
     workspace = models.ForeignKey(
         "workspaces.Workspace",

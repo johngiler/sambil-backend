@@ -163,6 +163,8 @@ REST_FRAMEWORK = {
         "guest_checkout_email": "120/hour",
         "activate_client": "20/hour",
         "validate_password": "120/hour",
+        "password_setup_intent": "60/hour",
+        "set_initial_password": "30/hour",
     },
 }
 

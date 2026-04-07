@@ -54,7 +54,7 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(shopping_center__city="")
             elif city:
                 qs = qs.filter(shopping_center__city__iexact=city)
-        return qs
+        return qs.order_by("-created_at", "-id")
 
     @action(detail=True, methods=["post"], url_path="check-rental-range")
     def check_rental_range(self, request, pk=None):

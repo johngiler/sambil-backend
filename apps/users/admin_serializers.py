@@ -30,6 +30,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
     cover_image = serializers.SerializerMethodField()
     client_id = serializers.SerializerMethodField()
     client_company_name = serializers.SerializerMethodField()
+    has_usable_password = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -41,6 +42,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "cover_image",
             "client_id",
             "client_company_name",
+            "has_usable_password",
             "is_staff",
             "is_superuser",
             "date_joined",
@@ -66,6 +68,9 @@ class UserAdminSerializer(serializers.ModelSerializer):
             c = getattr(p, "client", None)
             return c.company_name if c else None
         return None
+
+    def get_has_usable_password(self, obj):
+        return obj.has_usable_password()
 
 
 class UserAdminCreateSerializer(serializers.Serializer):

@@ -11,6 +11,7 @@ from rest_framework_simplejwt.serializers import (
 )
 from rest_framework_simplejwt.settings import api_settings
 
+from apps.users.models import UserProfile
 from apps.users.utils import get_user_profile, get_user_role, is_platform_staff
 from apps.workspaces.tenant import (
     default_workspace_slug,
@@ -158,14 +159,42 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, str]:
+        request = self.context.get("request")
+        ws = get_workspace_for_request(request) if request else None
+        User = get_user_model()
+        ident_raw = attrs.get(User.USERNAME_FIELD) or attrs.get("username") or ""
+        ident = ident_raw.strip() if isinstance(ident_raw, str) else ""
+        if ident:
+            candidate = (
+                User.objects.filter(username__iexact=ident).first()
+                or User.objects.filter(email__iexact=ident).first()
+            )
+            if (
+                candidate is not None
+                and not candidate.is_staff
+                and not candidate.is_superuser
+                and not candidate.has_usable_password()
+            ):
+                profile = get_user_profile(candidate)
+                if (
+                    profile is not None
+                    and profile.role == UserProfile.Role.CLIENT
+                    and profile.client_id is not None
+                ):
+                    if ws is None or user_can_access_workspace(candidate, ws):
+                        raise AuthenticationFailed(
+                            "Tu cuenta está creada pero aún no tiene contraseña. "
+                            "Usa el enlace de registro que te compartió el administrador "
+                            "(página «Definir contraseña») o pídele que te reenvíe el enlace.",
+                            "password_not_set",
+                        )
+
         data = TokenObtainSerializer.validate(self, attrs)
         if is_platform_staff(self.user):
             raise AuthenticationFailed(
                 self.default_error_messages["no_active_account"],
                 "platform_staff_forbidden",
             )
-        request = self.context.get("request")
-        ws = get_workspace_for_request(request) if request else None
         if ws is not None and not user_can_access_workspace(self.user, ws):
             raise AuthenticationFailed(
                 self.default_error_messages["no_active_account"],

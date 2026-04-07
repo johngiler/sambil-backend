@@ -64,12 +64,123 @@ class GuestCheckoutEmailCheckView(APIView):
         return Response({"available": True}, status=status.HTTP_200_OK)
 
 
+class GuestCheckoutClientEmailCheckView(APIView):
+    """
+    POST público: indica si el correo ya corresponde a un Client en el workspace
+    y si ese cliente ya tiene usuario marketplace (debe iniciar sesión).
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "guest_checkout_email"
+
+    def post(self, request, *args, **kwargs):
+        ws = get_workspace_for_request(request)
+        if ws is None:
+            return Response(
+                {
+                    "detail": "No se identificó el espacio de trabajo. Usa el subdominio o la cabecera del tenant.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ser = GuestCheckoutEmailCheckSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        email = ser.validated_data["email"].strip().lower()
+        client = Client.objects.filter(workspace=ws, email__iexact=email).order_by("id").first()
+        if client is None:
+            return Response(
+                {
+                    "client_exists": False,
+                    "has_marketplace_account": False,
+                },
+                status=status.HTTP_200_OK,
+            )
+        has_account = UserProfile.objects.filter(
+            client=client,
+            role=UserProfile.Role.CLIENT,
+        ).exists()
+        return Response(
+            {
+                "client_exists": True,
+                "has_marketplace_account": has_account,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class GuestCheckoutDatosValidateSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    company_name = serializers.CharField(max_length=255)
+
+    def validate_company_name(self, value):
+        s = (value or "").strip()
+        if not s:
+            raise serializers.ValidationError("Indica el nombre de la empresa.")
+        return s
+
+
+class GuestCheckoutDatosValidateView(APIView):
+    """
+    POST público: valida correo y razón social frente a Clientes del workspace
+    (una sola petición al pulsar «Continuar» en datos del checkout invitado).
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "guest_checkout_email"
+
+    @staticmethod
+    def _client_flags(client):
+        if client is None:
+            return {"client_exists": False, "has_marketplace_account": False}
+        has_account = UserProfile.objects.filter(
+            client=client,
+            role=UserProfile.Role.CLIENT,
+        ).exists()
+        return {"client_exists": True, "has_marketplace_account": has_account}
+
+    def post(self, request, *args, **kwargs):
+        ws = get_workspace_for_request(request)
+        if ws is None:
+            return Response(
+                {
+                    "detail": "No se identificó el espacio de trabajo. Usa el subdominio o la cabecera del tenant.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ser = GuestCheckoutDatosValidateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        email = ser.validated_data["email"].strip().lower()
+        company_name = ser.validated_data["company_name"].strip()
+
+        client_by_email = Client.objects.filter(workspace=ws, email__iexact=email).order_by("id").first()
+        client_by_company = Client.objects.filter(
+            workspace=ws, company_name__iexact=company_name
+        ).order_by("id").first()
+
+        email_flags = self._client_flags(client_by_email)
+        company_flags = self._client_flags(client_by_company)
+        same_client = (
+            client_by_email is not None
+            and client_by_company is not None
+            and client_by_email.pk == client_by_company.pk
+        )
+
+        return Response(
+            {
+                "email": email_flags,
+                "company": company_flags,
+                "same_client": same_client,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class GuestCheckoutSerializer(serializers.Serializer):
     company_name = serializers.CharField(max_length=255)
-    rif = serializers.CharField(max_length=32)
     contact_name = serializers.CharField(max_length=255)
     email = serializers.EmailField()
-    phone = serializers.CharField(max_length=32, allow_blank=True, default="")
+    phone = serializers.CharField(max_length=32)
     address = serializers.CharField(allow_blank=True, default="", required=False)
     city = serializers.CharField(allow_blank=True, default="", max_length=120, required=False)
     create_account = serializers.BooleanField(default=False)
@@ -81,6 +192,24 @@ class GuestCheckoutSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("Agrega al menos una toma.")
         return value
+
+    def validate_company_name(self, value):
+        s = (value or "").strip()
+        if not s:
+            raise serializers.ValidationError("Indica el nombre de la empresa.")
+        return s
+
+    def validate_contact_name(self, value):
+        s = (value or "").strip()
+        if not s:
+            raise serializers.ValidationError("Indica el nombre de contacto.")
+        return s
+
+    def validate_phone(self, value):
+        s = (value or "").strip()
+        if not s:
+            raise serializers.ValidationError("Indica un teléfono de contacto.")
+        return s
 
     def validate(self, attrs):
         if attrs.get("create_account"):
@@ -96,18 +225,13 @@ class GuestCheckoutSerializer(serializers.Serializer):
             attrs["_password"] = p1
         return attrs
 
-    def validate_rif(self, value):
-        s = (value or "").strip()
-        if not s:
-            raise serializers.ValidationError("Indica el RIF.")
-        return s
-
 
 class GuestCheckoutView(APIView):
     """
     POST público: datos de empresa + líneas del carrito.
-    Crea o reutiliza Client (mismo RIF en el workspace sin usuario aún), genera orden enviada.
-    Opcionalmente crea usuario marketplace con contraseña (crear cuenta al comprar).
+    Crea o actualiza Client por correo en el workspace (sin duplicar por email).
+    Si ese cliente ya tiene usuario marketplace, se pide iniciar sesión.
+    Genera orden enviada. Opcionalmente crea usuario con contraseña (crear cuenta al comprar).
     """
 
     permission_classes = [AllowAny]
@@ -128,7 +252,9 @@ class GuestCheckoutView(APIView):
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
         email = data["email"].strip().lower()
-        rif = data["rif"].strip()
+        company_name = data["company_name"].strip()
+        contact_name = data["contact_name"].strip()
+        phone = data["phone"].strip()
 
         items_data = data["items"]
         for row in items_data:
@@ -148,38 +274,35 @@ class GuestCheckoutView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        try:
-            client = Client.objects.get(workspace=ws, rif=rif)
-        except Client.DoesNotExist:
-            client = None
+        client = Client.objects.filter(workspace=ws, email__iexact=email).order_by("id").first()
 
         if client is not None:
             if UserProfile.objects.filter(client=client, role=UserProfile.Role.CLIENT).exists():
                 return Response(
                     {
-                        "detail": "Este RIF ya tiene una cuenta en el marketplace. Inicia sesión para completar la reserva.",
-                        "code": "rif_has_account",
+                        "detail": "Este correo ya está asociado a una cuenta del marketplace. Inicia sesión para completar la reserva.",
+                        "code": "client_email_has_account",
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            client.company_name = data["company_name"].strip()
-            client.contact_name = data["contact_name"].strip()
+            client.company_name = company_name
+            client.contact_name = contact_name
             client.email = email
-            client.phone = (data.get("phone") or "").strip()
+            client.phone = phone
             client.address = (data.get("address") or "").strip()
             client.city = (data.get("city") or "").strip()
             client.save()
         else:
             client = Client.objects.create(
                 workspace=ws,
-                company_name=data["company_name"].strip(),
-                rif=rif,
-                contact_name=data["contact_name"].strip(),
+                company_name=company_name,
+                rif=None,
+                contact_name=contact_name,
                 email=email,
-                phone=(data.get("phone") or "").strip(),
+                phone=phone,
                 address=(data.get("address") or "").strip(),
                 city=(data.get("city") or "").strip(),
-                status=ClientStatus.PENDING,
+                status=ClientStatus.ACTIVE,
             )
 
         if data.get("create_account"):

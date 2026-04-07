@@ -28,7 +28,7 @@ class ShoppingCenterAdminViewSet(AdminModelViewSet):
         serializer.save(**extra)
 
     def get_queryset(self):
-        qs = ShoppingCenter.objects.all().order_by("listing_order", "code")
+        qs = ShoppingCenter.objects.all().order_by("-created_at", "-id")
         ws = get_workspace_for_request(self.request)
         if ws is not None:
             qs = qs.filter(workspace=ws)

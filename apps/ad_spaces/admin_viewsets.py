@@ -37,7 +37,7 @@ class AdSpaceAdminViewSet(AdminModelViewSet):
 
     def get_queryset(self):
         qs = AdSpace.objects.select_related("shopping_center").all().order_by(
-            "shopping_center__code", "code"
+            "-created_at", "-id"
         )
         ws = get_workspace_for_request(self.request)
         if ws is not None:

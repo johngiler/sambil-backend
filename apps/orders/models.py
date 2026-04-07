@@ -7,7 +7,7 @@ from apps.common.models import TimeStampedActiveModel
 class OrderStatus(models.TextChoices):
     DRAFT = "draft", "Borrador"
     SUBMITTED = "submitted", "Enviada"
-    CLIENT_APPROVED = "client_approved", "Cliente aprobado"
+    CLIENT_APPROVED = "client_approved", "Solicitud aprobada"
     ART_APPROVED = "art_approved", "Arte aprobado"
     INVOICED = "invoiced", "Facturada"
     PAID = "paid", "Pagada"
@@ -62,6 +62,7 @@ class OrderStatusEvent(models.Model):
     note = models.TextField(blank=True)
 
     class Meta:
+        # Cronológico (más antiguo primero): encaja con líneas de tiempo en la UI.
         ordering = ["created_at", "id"]
 
     def __str__(self):

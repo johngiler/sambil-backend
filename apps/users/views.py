@@ -16,12 +16,16 @@ from apps.clients.notifications import (
 )
 from apps.users.admin_serializers import revoke_django_privileges
 from apps.users.models import UserProfile
+from apps.users.password_policy import marketplace_password_policy_errors
+from apps.users.password_setup_tokens import (
+    build_user_password_setup_token,
+    parse_user_password_setup_token,
+)
 from apps.users.serializers import (
     UserMeSerializer,
     UserMeUpdateSerializer,
 )
-from apps.users.password_policy import marketplace_password_policy_errors
-from apps.users.utils import is_platform_staff
+from apps.users.utils import get_user_profile, is_platform_staff
 
 User = get_user_model()
 
@@ -195,4 +199,122 @@ class ActivateClientAccountView(APIView):
         return Response(
             {"detail": "Cuenta creada. Ya puedes iniciar sesión con tu correo y contraseña."},
             status=status.HTTP_201_CREATED,
+        )
+
+
+class PasswordSetupIntentView(APIView):
+    """
+    GET ?token= — devuelve el correo asociado al enlace de definición de contraseña
+    (usuario marketplace sin clave utilizable).
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_setup_intent"
+
+    def get(self, request, *args, **kwargs):
+        token = (request.query_params.get("token") or "").strip()
+        if not token:
+            return Response({"detail": "Falta el token."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            uid = parse_user_password_setup_token(token)
+        except signing.SignatureExpired:
+            return Response(
+                {"detail": "El enlace caducó. Solicita uno nuevo al administrador."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except signing.BadSignature:
+            return Response({"detail": "Enlace no válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(pk=uid, is_staff=False, is_superuser=False).first()
+        if user is None or user.has_usable_password():
+            return Response(
+                {"detail": "Enlace no válido o la cuenta ya tiene contraseña."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        profile = get_user_profile(user)
+        if (
+            profile is None
+            or profile.role != UserProfile.Role.CLIENT
+            or profile.client_id is None
+        ):
+            return Response({"detail": "Enlace no válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        email = (user.email or user.username or "").strip()
+        if not email:
+            return Response(
+                {"detail": "La cuenta no tiene correo configurado. Contacta a soporte."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"email": email})
+
+
+class SetInitialPasswordView(APIView):
+    """
+    POST { token, password, password_confirm } — define la primera contraseña para un usuario
+    creado sin clave (p. ej. desde «Generar usuario» en clientes).
+    """
+
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "set_initial_password"
+
+    def post(self, request, *args, **kwargs):
+        token = (request.data.get("token") or "").strip()
+        password = (request.data.get("password") or "").strip()
+        password_confirm = (request.data.get("password_confirm") or "").strip()
+        if not token:
+            return Response({"detail": "Falta el token del enlace."}, status=status.HTTP_400_BAD_REQUEST)
+        if not password:
+            return Response({"detail": "Indica una contraseña."}, status=status.HTTP_400_BAD_REQUEST)
+        if password != password_confirm:
+            return Response({"detail": "Las contraseñas no coinciden."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            uid = parse_user_password_setup_token(token)
+        except signing.SignatureExpired:
+            return Response(
+                {"detail": "El enlace caducó. Solicita uno nuevo al administrador."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except signing.BadSignature:
+            return Response({"detail": "Enlace no válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.filter(pk=uid, is_staff=False, is_superuser=False).first()
+        if user is None:
+            return Response({"detail": "Enlace no válido."}, status=status.HTTP_400_BAD_REQUEST)
+        if user.has_usable_password():
+            return Response(
+                {
+                    "detail": "Esta cuenta ya tiene contraseña. Inicia sesión.",
+                    "code": "already_set",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        profile = get_user_profile(user)
+        if (
+            profile is None
+            or profile.role != UserProfile.Role.CLIENT
+            or profile.client_id is None
+        ):
+            return Response({"detail": "Enlace no válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        policy_errs = marketplace_password_policy_errors(password)
+        if policy_errs:
+            return Response({"password": policy_errs}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            validate_password(password, user=user)
+        except DjangoValidationError as e:
+            return Response(
+                {"password": list(e.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.set_password(password)
+        user.save(update_fields=["password"])
+        revoke_django_privileges(user)
+
+        return Response(
+            {"detail": "Contraseña guardada. Ya puedes iniciar sesión con tu correo y contraseña."},
+            status=status.HTTP_200_OK,
         )

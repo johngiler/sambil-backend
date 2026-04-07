@@ -1,10 +1,10 @@
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.orders.models import Order
+from apps.orders.models import Order, OrderItem, OrderStatus
 from apps.orders.serializers import (
     OrderAdminPatchSerializer,
     OrderCreateSerializer,
@@ -19,6 +19,7 @@ class OrderViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     permission_classes = [IsAuthenticated]
@@ -28,11 +29,16 @@ class OrderViewSet(
         qs = (
             Order.objects.select_related("client")
             .prefetch_related(
-                "items__ad_space",
+                Prefetch(
+                    "items",
+                    queryset=OrderItem.objects.select_related(
+                        "ad_space__shopping_center",
+                    ),
+                ),
                 "status_events__actor",
             )
             .all()
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
         ws = get_workspace_for_request(self.request)
         if user_is_admin(self.request.user):
@@ -74,7 +80,7 @@ class OrderViewSet(
         serializer.is_valid(raise_exception=True)
         order = serializer.save()
         return Response(
-            OrderSerializer(order).data,
+            OrderSerializer(order, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -89,7 +95,9 @@ class OrderViewSet(
         ser.is_valid(raise_exception=True)
         ser.save()
         instance.refresh_from_db()
-        return Response(OrderSerializer(instance).data)
+        return Response(
+            OrderSerializer(instance, context=self.get_serializer_context()).data
+        )
 
     def update(self, request, *args, **kwargs):
         if not user_is_admin(request.user):
@@ -102,7 +110,27 @@ class OrderViewSet(
         ser.is_valid(raise_exception=True)
         ser.save()
         instance.refresh_from_db()
-        return Response(OrderSerializer(instance).data)
+        return Response(
+            OrderSerializer(instance, context=self.get_serializer_context()).data
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        if not user_is_admin(request.user):
+            return Response(
+                {"detail": "No tienes permiso para esta acción."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        instance = self.get_object()
+        if instance.status != OrderStatus.DRAFT:
+            return Response(
+                {
+                    "detail": "Solo se pueden eliminar pedidos en borrador.",
+                    "code": "order_not_draft",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"], url_path="submit")
     def submit(self, request, pk=None):
@@ -116,4 +144,6 @@ class OrderViewSet(
             )
         except drf_serializers.ValidationError as e:
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
-        return Response(OrderSerializer(order).data)
+        return Response(
+            OrderSerializer(order, context={"request": request}).data
+        )

@@ -36,7 +36,7 @@ def parse_client_activation_token(token: str, *, max_age: int = 14 * 86400) -> i
 
 def notify_client_after_order_client_approved(order: Order) -> None:
     """
-    Cuando el admin pasa la orden a «Cliente aprobado»:
+    Cuando el admin pasa la orden a «Solicitud aprobada» (estado client_approved):
     - Si la empresa ya tiene usuario marketplace: solo log (el CRM puede notificar aparte).
     - Si no: envía correo con enlace para crear contraseña (mismo email de la ficha).
     """

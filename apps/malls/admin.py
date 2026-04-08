@@ -6,7 +6,7 @@ from apps.malls.models import ShoppingCenter
 @admin.register(ShoppingCenter)
 class ShoppingCenterAdmin(admin.ModelAdmin):
     list_display = (
-        "code",
+        "slug",
         "name",
         "workspace",
         "city",
@@ -15,4 +15,4 @@ class ShoppingCenterAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("is_active", "marketplace_catalog_enabled", "workspace")
-    search_fields = ("code", "name")
+    search_fields = ("slug", "name")

@@ -81,8 +81,8 @@ class OrderItemSerializer(serializers.ModelSerializer):
     shopping_center_name = serializers.CharField(
         source="ad_space.shopping_center.name", read_only=True
     )
-    shopping_center_code = serializers.CharField(
-        source="ad_space.shopping_center.code", read_only=True
+    shopping_center_slug = serializers.CharField(
+        source="ad_space.shopping_center.slug", read_only=True
     )
     shopping_center_city = serializers.CharField(
         source="ad_space.shopping_center.city", read_only=True
@@ -99,7 +99,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "ad_space_title",
             "ad_space_cover_image",
             "ad_space_gallery_images",
-            "shopping_center_code",
+            "shopping_center_slug",
             "shopping_center_city",
             "shopping_center_name",
             "start_date",

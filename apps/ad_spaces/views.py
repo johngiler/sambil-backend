@@ -49,7 +49,7 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(shopping_center__workspace=ws)
         center = self.request.query_params.get("center")
         if center:
-            qs = qs.filter(shopping_center__code=center)
+            qs = qs.filter(shopping_center__slug__iexact=center.strip())
         if self.action == "list":
             search = self.request.query_params.get("search", "").strip()
             qs = self._apply_list_search(qs, search)
@@ -112,7 +112,7 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(shopping_center__workspace=ws)
         center = request.query_params.get("center")
         if center:
-            qs = qs.filter(shopping_center__code=center)
+            qs = qs.filter(shopping_center__slug__iexact=center.strip())
         search = request.query_params.get("search", "").strip()
         qs = self._apply_list_search(qs, search)
         total = qs.count()

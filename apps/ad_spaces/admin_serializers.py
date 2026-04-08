@@ -2,13 +2,12 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.ad_spaces.models import AdSpace
-from apps.ad_spaces.nomenclature import validate_toma_code_for_center
-from apps.malls.models import ShoppingCenter
+from apps.ad_spaces.nomenclature import validate_toma_code
 
 
 class AdSpaceAdminSerializer(serializers.ModelSerializer):
-    shopping_center_code = serializers.CharField(
-        source="shopping_center.code", read_only=True
+    shopping_center_slug = serializers.CharField(
+        source="shopping_center.slug", read_only=True
     )
     shopping_center_name = serializers.CharField(
         source="shopping_center.name", read_only=True
@@ -25,7 +24,7 @@ class AdSpaceAdminSerializer(serializers.ModelSerializer):
             "id",
             "code",
             "shopping_center",
-            "shopping_center_code",
+            "shopping_center_slug",
             "shopping_center_name",
             "shopping_center_city",
             "type",
@@ -63,16 +62,9 @@ class AdSpaceAdminSerializer(serializers.ModelSerializer):
         attrs = super().validate(attrs)
         if self.instance is None:
             code = attrs.get("code")
-            sc = attrs.get("shopping_center")
-            if code is not None and sc is not None:
+            if code is not None:
                 try:
-                    center = ShoppingCenter.objects.get(pk=sc)
-                except ShoppingCenter.DoesNotExist as exc:
-                    raise serializers.ValidationError(
-                        {"shopping_center": "Centro comercial no encontrado."}
-                    ) from exc
-                try:
-                    attrs["code"] = validate_toma_code_for_center(code, center.code)
+                    attrs["code"] = validate_toma_code(code)
                 except DjangoValidationError as exc:
                     raise serializers.ValidationError(
                         {"code": list(exc.messages)}

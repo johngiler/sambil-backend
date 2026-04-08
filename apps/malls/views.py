@@ -1,4 +1,5 @@
 from django.db.models import Q
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 
 from apps.malls.models import ShoppingCenter
@@ -9,22 +10,30 @@ from apps.workspaces.tenant import get_workspace_for_request
 class ShoppingCenterViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Listado público de centros filtrado por `on_homepage` (la portada del sitio lista tomas, no centros).
-    Detalle por código (`/api/centers/SCC/`).
+    Detalle por slug (`/api/centers/mi-centro/`).
 
     Listado: filtros opcionales `search`, `catalog_status` (all|available|soon),
     `location` (all|caracas|other). Paginación estándar (20 por página).
     """
 
     queryset = ShoppingCenter.objects.filter(on_homepage=True).order_by(
-        "listing_order", "-created_at", "code"
+        "listing_order", "-created_at", "slug"
     )
     serializer_class = ShoppingCenterSerializer
-    lookup_field = "code"
-    lookup_value_regex = r"[A-Za-z0-9]+"
+    lookup_field = "slug"
+    lookup_value_regex = r"[a-zA-Z0-9-]+"
+
+    def get_object(self):
+        """Acepta slug en la URL sin distinguir mayúsculas/minúsculas (compat. con enlaces antiguos)."""
+        if self.lookup_field not in self.kwargs:
+            return super().get_object()
+        qs = self.filter_queryset(self.get_queryset())
+        slug = self.kwargs[self.lookup_field]
+        return get_object_or_404(qs, slug__iexact=slug)
 
     def get_queryset(self):
         qs = ShoppingCenter.objects.filter(on_homepage=True).order_by(
-            "listing_order", "-created_at", "code"
+            "listing_order", "-created_at", "slug"
         )
         ws = get_workspace_for_request(self.request)
         if ws is not None:
@@ -38,7 +47,7 @@ class ShoppingCenterViewSet(viewsets.ReadOnlyModelViewSet):
                 Q(name__icontains=search)
                 | Q(city__icontains=search)
                 | Q(district__icontains=search)
-                | Q(code__icontains=search)
+                | Q(slug__icontains=search)
             )
         catalog_status = params.get("catalog_status", "all")
         if catalog_status == "available":
@@ -59,4 +68,4 @@ class ShoppingCenterViewSet(viewsets.ReadOnlyModelViewSet):
                 | Q(district__icontains="caracas")
             )
             qs = qs.exclude(caracas_q)
-        return qs.order_by("listing_order", "-created_at", "code")
+        return qs.order_by("listing_order", "-created_at", "slug")

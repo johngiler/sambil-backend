@@ -11,7 +11,10 @@ class ShoppingCenter(TimeStampedActiveModel):
         help_text="Owner / tenant al que pertenece este centro comercial.",
     )
     name = models.CharField(max_length=200)
-    code = models.CharField(max_length=8, unique=True, db_index=True)
+    slug = models.SlugField(
+        max_length=80,
+        help_text="Identificador en URL pública (?center=, detalle /api/catalog/centers/{slug}/). Único por workspace.",
+    )
     city = models.CharField(max_length=120)
     district = models.CharField(
         max_length=120,
@@ -45,7 +48,13 @@ class ShoppingCenter(TimeStampedActiveModel):
     )
 
     class Meta:
-        ordering = ["listing_order", "code"]
+        ordering = ["listing_order", "slug"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "slug"],
+                name="malls_shoppingcenter_workspace_slug_uniq",
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.code} — {self.name}"
+        return f"{self.slug} — {self.name}"

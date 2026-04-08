@@ -14,7 +14,7 @@ class ShoppingCenterSerializer(serializers.ModelSerializer):
             "id",
             "workspace",
             "name",
-            "code",
+            "slug",
             "city",
             "district",
             "address",

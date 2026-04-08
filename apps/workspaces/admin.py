@@ -29,4 +29,20 @@ class WorkspaceAdmin(admin.ModelAdmin):
                 "description": "Datos opcionales del owner; pueden mostrarse en pie u otros bloques públicos.",
             },
         ),
+        (
+            "Carga de catálogo (seed)",
+            {
+                "fields": (
+                    "catalog_scc_seeded_at",
+                    "catalog_slc_seeded_at",
+                    "catalog_seed_feeder",
+                ),
+                "description": "Marcas de tiempo y usuario de referencia al importar con seed_production_catalog.",
+            },
+        ),
+    )
+    readonly_fields = (
+        "catalog_scc_seeded_at",
+        "catalog_slc_seeded_at",
+        "catalog_seed_feeder",
     )

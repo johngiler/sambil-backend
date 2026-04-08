@@ -1,6 +1,7 @@
 """
-Nomenclatura fase 1 para códigos de toma: {código_centro}-T{número}[sufijo_letras].
-Ejemplos: SCC-T1, SCC-T2, SLC-T1A, SLC-T1B.
+Nomenclatura de códigos de toma: prefijo único + «-T» + número + sufijo de letras opcional.
+El prefijo no tiene que coincidir con datos del centro comercial (cada toma tiene su propio código).
+Ejemplos: SCC-T1, SAMBIL01-T2, MI-VALLA-T1A.
 """
 
 from __future__ import annotations
@@ -9,27 +10,25 @@ import re
 
 from django.core.exceptions import ValidationError
 
+_TOMA_CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]*-T[0-9]+[A-Z]*$")
+
 
 def normalize_toma_code(code: str) -> str:
     return (code or "").strip().upper()
 
 
-def validate_toma_code_for_center(code: str, shopping_center_code: str) -> str:
+def validate_toma_code(code: str) -> str:
     """
     Devuelve el código normalizado (mayúsculas) o lanza ValidationError.
-    El prefijo debe coincidir exactamente con el código del centro comercial.
     """
     normalized = normalize_toma_code(code)
-    cc = normalize_toma_code(shopping_center_code)
-    if not cc:
-        raise ValidationError("El centro comercial no tiene un código válido.")
     if not normalized:
         raise ValidationError("Indica el código de la toma.")
-    pattern = re.compile(r"^" + re.escape(cc) + r"-T(\d+)([A-Z]*)$")
-    if not pattern.fullmatch(normalized):
+    if len(normalized) > 32:
+        raise ValidationError("El código no puede superar 32 caracteres.")
+    if not _TOMA_CODE_RE.fullmatch(normalized):
         raise ValidationError(
-            "El código debe seguir «%(cc)s-T» más un número y, si aplica, letras "
-            "(ej. %(ex1)s o %(ex2)s).",
-            params={"cc": cc, "ex1": f"{cc}-T1", "ex2": f"{cc}-T1A"},
+            "El código debe tener un prefijo (letras, números, guiones o guiones bajos), "
+            "luego «-T», un número y, si aplica, letras finales (ej. SCC-T1, SLC-T1A)."
         )
     return normalized

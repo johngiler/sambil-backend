@@ -7,8 +7,8 @@ from apps.catalog_access import shopping_center_allows_public_catalog
 
 
 class AdSpaceSerializer(serializers.ModelSerializer):
-    shopping_center_code = serializers.CharField(
-        source="shopping_center.code", read_only=True
+    shopping_center_slug = serializers.CharField(
+        source="shopping_center.slug", read_only=True
     )
     shopping_center_name = serializers.CharField(
         source="shopping_center.name", read_only=True
@@ -29,7 +29,7 @@ class AdSpaceSerializer(serializers.ModelSerializer):
             "id",
             "code",
             "shopping_center",
-            "shopping_center_code",
+            "shopping_center_slug",
             "shopping_center_name",
             "shopping_center_city",
             "catalog_public",

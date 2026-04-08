@@ -41,7 +41,7 @@ class ShoppingCenterAdminViewSet(AdminModelViewSet):
             search = self.request.query_params.get("search", "").strip()
             if search:
                 qs = qs.filter(
-                    Q(code__icontains=search)
+                    Q(slug__icontains=search)
                     | Q(name__icontains=search)
                     | Q(city__icontains=search)
                     | Q(district__icontains=search)

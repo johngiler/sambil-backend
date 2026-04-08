@@ -54,7 +54,7 @@ class AdSpaceAdminViewSet(AdminModelViewSet):
                 qs = qs.filter(
                     Q(code__icontains=search)
                     | Q(title__icontains=search)
-                    | Q(shopping_center__code__icontains=search)
+                    | Q(shopping_center__slug__icontains=search)
                     | Q(shopping_center__name__icontains=search)
                 )
         return qs.prefetch_related("gallery_images")

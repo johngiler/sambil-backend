@@ -7,6 +7,7 @@ Tenant lógico del SaaS: un owner (marca operadora) con sus CCs, tomas y aislami
 - Admin comercial del owner: `UserProfile.role=admin` + `workspace` = solo su árbol.
 """
 
+from django.conf import settings
 from django.db import models
 
 from apps.common.models import TimeStampedActiveModel
@@ -99,6 +100,26 @@ class Workspace(TimeStampedActiveModel):
         max_length=255,
         blank=True,
         help_text="Frase corta opcional (propuesta de valor). Sale en la API pública; la interfaz del marketplace aún puede no mostrarla hasta conectarla en el front.",
+    )
+    catalog_scc_seeded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Si está definido, el comando seed_production_catalog ya importó tomas SCC para este owner.",
+    )
+    catalog_slc_seeded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Si está definido, el comando seed_production_catalog ya importó tomas SLC para este owner.",
+    )
+    catalog_seed_feeder = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Primer usuario administrador marketplace de este workspace (referencia de carga de catálogo).",
     )
 
     class Meta:

@@ -34,7 +34,7 @@ class AdSpace(TimeStampedActiveModel):
         max_length=32,
         unique=True,
         db_index=True,
-        help_text="Nomenclatura: {código_centro}-T{número}[sufijo]. Ej. SCC-T1, SLC-T1A.",
+        help_text="Código único de la toma: prefijo-T{número}[sufijo], ej. SCC-T1, SLC-T1A (el prefijo no depende del centro).",
     )
     shopping_center = models.ForeignKey(
         "malls.ShoppingCenter",

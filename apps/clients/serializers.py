@@ -69,7 +69,19 @@ class MyCompanySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Client
-        fields = ("company_name", "rif", "contact_name", "email", "phone", "address", "city")
+        fields = (
+            "company_name",
+            "rif",
+            "contact_name",
+            "email",
+            "phone",
+            "address",
+            "city",
+            "cover_image",
+        )
+        extra_kwargs = {
+            "cover_image": {"required": False, "allow_null": True},
+        }
 
     def validate_rif(self, value):
         if value is None:

@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Count, Prefetch, Q
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -151,12 +152,20 @@ class MyCompanyView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    @staticmethod
+    def _truthy_remove_company_cover(data):
+        return data.get("remove_company_cover") in (True, "true", "1", "on")
+
+    def _serialize_company(self, client, request):
+        return Response(ClientAdminSerializer(client, context={"request": request}).data)
 
     def get(self, request):
         c = get_marketplace_client(request.user)
         if c is None:
             return Response(None, status=status.HTTP_204_NO_CONTENT)
-        return Response(ClientAdminSerializer(c).data)
+        return self._serialize_company(c, request)
 
     def post(self, request):
         if user_is_admin(request.user):
@@ -172,7 +181,15 @@ class MyCompanyView(APIView):
         ser = MyCompanySerializer(data=request.data, context={"request": request})
         ser.is_valid(raise_exception=True)
         c = ser.save()
-        return Response(ClientAdminSerializer(c).data, status=status.HTTP_201_CREATED)
+        if self._truthy_remove_company_cover(request.data) and "cover_image" not in request.FILES:
+            if c.cover_image:
+                c.cover_image.delete(save=False)
+            c.cover_image = None
+            c.save(update_fields=["cover_image"])
+        return Response(
+            ClientAdminSerializer(c, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
     def patch(self, request):
         c = get_marketplace_client(request.user)
@@ -189,4 +206,10 @@ class MyCompanyView(APIView):
         ser = MyCompanySerializer(c, data=request.data, partial=True, context={"request": request})
         ser.is_valid(raise_exception=True)
         ser.save()
-        return Response(ClientAdminSerializer(c).data)
+        c.refresh_from_db()
+        if self._truthy_remove_company_cover(request.data) and "cover_image" not in request.FILES:
+            if c.cover_image:
+                c.cover_image.delete(save=False)
+            c.cover_image = None
+            c.save(update_fields=["cover_image"])
+        return self._serialize_company(c, request)

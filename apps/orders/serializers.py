@@ -84,7 +84,11 @@ class OrderItemSerializer(serializers.ModelSerializer):
     shopping_center_code = serializers.CharField(
         source="ad_space.shopping_center.code", read_only=True
     )
+    shopping_center_city = serializers.CharField(
+        source="ad_space.shopping_center.city", read_only=True
+    )
     ad_space_cover_image = serializers.SerializerMethodField()
+    ad_space_gallery_images = serializers.SerializerMethodField()
 
     class Meta:
         model = OrderItem
@@ -94,7 +98,9 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "ad_space_code",
             "ad_space_title",
             "ad_space_cover_image",
+            "ad_space_gallery_images",
             "shopping_center_code",
+            "shopping_center_city",
             "shopping_center_name",
             "start_date",
             "end_date",
@@ -102,13 +108,17 @@ class OrderItemSerializer(serializers.ModelSerializer):
             "subtotal",
         )
 
+    def get_ad_space_gallery_images(self, obj):
+        ad = obj.ad_space
+        out = []
+        for row in ad.gallery_images.all():
+            if row.image:
+                out.append(row.image.url)
+        return out
+
     def get_ad_space_cover_image(self, obj):
         ad = obj.ad_space
-        first = (
-            ad.gallery_images.all()
-            .order_by("sort_order", "id")
-            .first()
-        )
+        first = ad.gallery_images.all().first()
         if first and first.image:
             return first.image.url
         img = ad.cover_image

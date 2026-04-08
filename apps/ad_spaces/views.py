@@ -110,6 +110,9 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
         ws = get_workspace_for_request(request)
         if ws is not None:
             qs = qs.filter(shopping_center__workspace=ws)
+        center = request.query_params.get("center")
+        if center:
+            qs = qs.filter(shopping_center__code=center)
         search = request.query_params.get("search", "").strip()
         qs = self._apply_list_search(qs, search)
         total = qs.count()

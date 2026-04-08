@@ -20,6 +20,8 @@ class AdSpaceSerializer(serializers.ModelSerializer):
     availability_year = serializers.SerializerMethodField(read_only=True)
     months_occupied = serializers.SerializerMethodField(read_only=True)
     status_label = serializers.SerializerMethodField()
+    cover_image = serializers.SerializerMethodField()
+    gallery_images = serializers.SerializerMethodField()
 
     class Meta:
         model = AdSpace
@@ -46,6 +48,7 @@ class AdSpaceSerializer(serializers.ModelSerializer):
             "status",
             "status_label",
             "cover_image",
+            "gallery_images",
             "venue_zone",
             "double_sided",
             "production_specs",
@@ -53,7 +56,6 @@ class AdSpaceSerializer(serializers.ModelSerializer):
             "hem_pocket_top_cm",
         )
         read_only_fields = ("status",)
-        extra_kwargs = {"cover_image": {"required": False, "allow_null": True}}
 
     def get_catalog_public(self, obj):
         return shopping_center_allows_public_catalog(obj.shopping_center)
@@ -67,3 +69,33 @@ class AdSpaceSerializer(serializers.ModelSerializer):
 
     def get_status_label(self, obj):
         return obj.get_status_display()
+
+    def _absolute_media_url(self, url: str) -> str:
+        if not url:
+            return ""
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(url)
+        return url
+
+    def get_cover_image(self, obj):
+        first = (
+            obj.gallery_images.all()
+            .order_by("sort_order", "id")
+            .first()
+        )
+        if first and first.image:
+            return self._absolute_media_url(first.image.url)
+        if obj.cover_image:
+            return self._absolute_media_url(obj.cover_image.url)
+        return None
+
+    def get_gallery_images(self, obj):
+        request = self.context.get("request")
+        out = []
+        for i in obj.gallery_images.all().order_by("sort_order", "id"):
+            if not i.image:
+                continue
+            u = i.image.url
+            out.append(request.build_absolute_uri(u) if request else u)
+        return out

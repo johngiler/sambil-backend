@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.orders.models import OrderStatus, OrderStatusEvent
 from apps.orders.validators import (
+    ad_space_allows_marketplace_reservation,
     contract_meets_min_months,
     hold_expires_at_from_now,
     line_subtotal,
@@ -53,6 +54,16 @@ def submit_draft_order(order: "Order", *, actor: AbstractBaseUser | None = None)
             raise serializers.ValidationError(
                 {
                     "detail": f"La línea {item.ad_space.code} no cumple el mínimo de 5 meses.",
+                }
+            )
+        if not ad_space_allows_marketplace_reservation(item.ad_space):
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        f"La toma {item.ad_space.code} no admite enviar la solicitud "
+                        f"(estado: {item.ad_space.get_status_display()}). "
+                        "Quítala del carrito o elige otra toma."
+                    ),
                 }
             )
         if order_item_conflicts(

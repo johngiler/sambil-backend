@@ -5,11 +5,40 @@ from rest_framework import serializers
 from apps.ad_spaces.models import AdSpace
 from apps.catalog_access import shopping_center_allows_public_catalog
 from apps.clients.models import Client
-from apps.orders.models import Order, OrderItem, OrderStatus, OrderStatusEvent
+from apps.orders.models import (
+    Order,
+    OrderItem,
+    OrderPaymentMethod,
+    OrderStatus,
+    OrderStatusEvent,
+)
 from apps.orders.services import log_order_status_transition
-from apps.orders.validators import contract_meets_min_months, line_subtotal
+from apps.orders.validators import (
+    ad_space_allows_marketplace_reservation,
+    contract_meets_min_months,
+    line_subtotal,
+)
 from apps.users.utils import get_marketplace_client, is_platform_staff, user_is_admin
 from apps.workspaces.tenant import get_workspace_for_request
+
+
+_RECEIPT_MAX_BYTES = 5 * 1024 * 1024
+_RECEIPT_ALLOWED_CT = frozenset(
+    {"image/jpeg", "image/png", "image/webp", "application/pdf"}
+)
+
+
+def validate_order_receipt_file(value):
+    if value is None:
+        return value
+    if getattr(value, "size", 0) > _RECEIPT_MAX_BYTES:
+        raise serializers.ValidationError("El archivo no puede superar 5 MB.")
+    ct = (getattr(value, "content_type", None) or "").strip()
+    if ct and ct not in _RECEIPT_ALLOWED_CT:
+        raise serializers.ValidationError(
+            "Formato no permitido. Usa JPG, PNG, WebP o PDF."
+        )
+    return value
 
 
 def _status_label(value: str) -> str:
@@ -74,7 +103,15 @@ class OrderItemSerializer(serializers.ModelSerializer):
         )
 
     def get_ad_space_cover_image(self, obj):
-        img = obj.ad_space.cover_image
+        ad = obj.ad_space
+        first = (
+            ad.gallery_images.all()
+            .order_by("sort_order", "id")
+            .first()
+        )
+        if first and first.image:
+            return first.image.url
+        img = ad.cover_image
         if not img:
             return None
         return img.url
@@ -114,6 +151,8 @@ class OrderSerializer(serializers.ModelSerializer):
         source="status_events", many=True, read_only=True
     )
     status_label = serializers.SerializerMethodField()
+    payment_method_label = serializers.SerializerMethodField()
+    payment_receipt_url = serializers.SerializerMethodField()
     client_company_name = serializers.CharField(
         source="client.company_name", read_only=True
     )
@@ -132,6 +171,9 @@ class OrderSerializer(serializers.ModelSerializer):
             "submitted_at",
             "hold_expires_at",
             "created_at",
+            "payment_method",
+            "payment_method_label",
+            "payment_receipt_url",
             "items",
             "status_timeline",
         )
@@ -142,10 +184,79 @@ class OrderSerializer(serializers.ModelSerializer):
             "submitted_at",
             "hold_expires_at",
             "created_at",
+            "payment_method",
+            "payment_method_label",
+            "payment_receipt_url",
         )
 
     def get_status_label(self, obj):
         return _status_label(obj.status)
+
+    def get_payment_method_label(self, obj):
+        v = obj.payment_method or ""
+        if not v:
+            return OrderPaymentMethod.UNSET.label
+        try:
+            return OrderPaymentMethod(v).label
+        except ValueError:
+            return v
+
+    def get_payment_receipt_url(self, obj):
+        f = obj.payment_receipt
+        if not f:
+            return None
+        return f.url
+
+
+class OrderClientPaymentPatchSerializer(serializers.ModelSerializer):
+    """
+    Solo el cliente dueño del pedido: método y comprobante (p. ej. tras checkout).
+    No expuesto al admin.
+    """
+
+    _BLOCKED = frozenset(
+        {
+            OrderStatus.DRAFT,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+            OrderStatus.PAID,
+            OrderStatus.ACTIVE,
+        }
+    )
+
+    class Meta:
+        model = Order
+        fields = ("payment_method", "payment_receipt")
+        extra_kwargs = {
+            "payment_receipt": {"required": False, "allow_null": True},
+            "payment_method": {"required": False},
+        }
+
+    def validate_payment_receipt(self, value):
+        return validate_order_receipt_file(value)
+
+    def validate(self, attrs):
+        if self.instance and self.instance.status in self._BLOCKED:
+            raise serializers.ValidationError(
+                {
+                    "detail": "No puedes modificar los datos de pago en el estado actual del pedido."
+                }
+            )
+        return attrs
+
+    def update(self, instance, validated_data):
+        old_receipt = instance.payment_receipt if instance.payment_receipt else None
+        has_new = (
+            "payment_receipt" in validated_data
+            and validated_data.get("payment_receipt") is not None
+        )
+        instance = super().update(instance, validated_data)
+        if has_new and old_receipt:
+            new = instance.payment_receipt
+            if new and getattr(old_receipt, "name", None) != getattr(new, "name", None):
+                old_receipt.delete(save=False)
+        return instance
 
 
 class OrderAdminPatchSerializer(serializers.ModelSerializer):
@@ -195,6 +306,16 @@ class OrderItemWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {
                     "end_date": "El contrato debe cubrir al menos 5 meses de calendario (regla Fase 1)."
+                }
+            )
+        ad = data["ad_space"]
+        if not ad_space_allows_marketplace_reservation(ad):
+            raise serializers.ValidationError(
+                {
+                    "ad_space": (
+                        f"La toma {ad.code} no admite nuevas reservas "
+                        f"(estado: {ad.get_status_display()})."
+                    )
                 }
             )
         monthly = data["ad_space"].monthly_price_usd

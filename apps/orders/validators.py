@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 
+from apps.ad_spaces.models import AdSpaceStatus
 from apps.availability.models import AvailabilityBlock, AvailabilityBlockType
 from apps.orders.models import OrderItem, OrderStatus
 
@@ -22,6 +23,11 @@ PIPELINE_STATUSES: tuple[str, ...] = (
     OrderStatus.INSTALLATION,
     OrderStatus.ACTIVE,
 )
+
+
+def ad_space_allows_marketplace_reservation(ad_space) -> bool:
+    """Solo «disponible» admite nuevas líneas desde el marketplace (invitado o cliente)."""
+    return getattr(ad_space, "status", None) == AdSpaceStatus.AVAILABLE
 
 
 def contract_months_inclusive(start: date, end: date) -> int:

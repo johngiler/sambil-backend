@@ -5,7 +5,11 @@ from rest_framework.response import Response
 
 from apps.ad_spaces.models import AdSpace
 from apps.ad_spaces.serializers import AdSpaceSerializer
-from apps.orders.validators import contract_meets_min_months, order_item_conflicts
+from apps.ad_spaces.models import AdSpaceStatus
+from apps.orders.validators import (
+    contract_meets_min_months,
+    order_item_conflicts,
+)
 from apps.workspaces.tenant import get_workspace_for_request
 
 _EMPTY_CITY_SENTINEL = "__empty__"
@@ -54,7 +58,7 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(shopping_center__city="")
             elif city:
                 qs = qs.filter(shopping_center__city__iexact=city)
-        return qs.order_by("-created_at", "-id")
+        return qs.prefetch_related("gallery_images").order_by("-created_at", "-id")
 
     @action(detail=True, methods=["post"], url_path="check-rental-range")
     def check_rental_range(self, request, pk=None):
@@ -66,6 +70,17 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
         ser.is_valid(raise_exception=True)
         start = ser.validated_data["start_date"]
         end = ser.validated_data["end_date"]
+        if space.status != AdSpaceStatus.AVAILABLE:
+            return Response(
+                {
+                    "ok": False,
+                    "detail": (
+                        "Esta toma no admite nuevas reservas en el marketplace "
+                        f"(estado: {space.get_status_display()})."
+                    ),
+                },
+                status=200,
+            )
         if not contract_meets_min_months(start, end):
             return Response(
                 {"ok": False, "detail": "El período no cumple el mínimo de 5 meses."},

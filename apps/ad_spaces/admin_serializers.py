@@ -17,6 +17,7 @@ class AdSpaceAdminSerializer(serializers.ModelSerializer):
         source="shopping_center.city", read_only=True, allow_blank=True
     )
     status_label = serializers.SerializerMethodField()
+    gallery_images = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = AdSpace
@@ -40,6 +41,7 @@ class AdSpaceAdminSerializer(serializers.ModelSerializer):
             "status",
             "status_label",
             "cover_image",
+            "gallery_images",
             "venue_zone",
             "double_sided",
             "production_specs",
@@ -79,3 +81,15 @@ class AdSpaceAdminSerializer(serializers.ModelSerializer):
 
     def get_status_label(self, obj):
         return obj.get_status_display()
+
+    def get_gallery_images(self, obj):
+        out = []
+        for i in obj.gallery_images.all():
+            out.append(
+                {
+                    "id": i.id,
+                    "image": i.image.url if i.image else "",
+                    "sort_order": i.sort_order,
+                }
+            )
+        return out

@@ -60,6 +60,7 @@ class AdSpace(TimeStampedActiveModel):
         upload_to="covers/spaces/%Y/%m/",
         blank=True,
         null=True,
+        help_text="Primera imagen de la galería (sincronizada al guardar).",
     )
     # PDF: zona comercial (Plaza Jardín, pasillo X→Y, etc.)
     venue_zone = models.CharField(max_length=255, blank=True)
@@ -81,3 +82,21 @@ class AdSpace(TimeStampedActiveModel):
 
     def __str__(self):
         return self.code
+
+
+class AdSpaceImage(models.Model):
+    """Imágenes de galería de una toma (ordenadas). La portada es la primera."""
+
+    ad_space = models.ForeignKey(
+        AdSpace,
+        on_delete=models.CASCADE,
+        related_name="gallery_images",
+    )
+    image = models.ImageField(upload_to="spaces/gallery/%Y/%m/")
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self):
+        return f"{self.ad_space_id}:{self.sort_order}"

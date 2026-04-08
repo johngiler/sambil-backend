@@ -4,6 +4,19 @@ from django.db import models
 from apps.common.models import TimeStampedActiveModel
 
 
+class OrderPaymentMethod(models.TextChoices):
+    """Medio de pago indicado por el cliente (checkout); visible en el panel admin."""
+
+    UNSET = "", "Sin indicar"
+    CARD = "card", "Tarjeta"
+    BANK_TRANSFER = "bank_transfer", "Transferencia bancaria"
+    MOBILE_PAYMENT = "mobile_payment", "Pago móvil"
+    ZELLE = "zelle", "Zelle"
+    CRYPTO = "crypto", "Cripto"
+    CASH = "cash", "Efectivo"
+    OTHER = "other", "Otro"
+
+
 class OrderStatus(models.TextChoices):
     DRAFT = "draft", "Borrador"
     SUBMITTED = "submitted", "Enviada"
@@ -33,6 +46,19 @@ class Order(TimeStampedActiveModel):
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     submitted_at = models.DateTimeField(null=True, blank=True)
     hold_expires_at = models.DateTimeField(null=True, blank=True)
+    payment_method = models.CharField(
+        max_length=32,
+        choices=OrderPaymentMethod.choices,
+        default=OrderPaymentMethod.UNSET,
+        blank=True,
+        db_index=True,
+    )
+    payment_receipt = models.FileField(
+        upload_to="orders/receipts/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text="Comprobante subido por el cliente en checkout.",
+    )
 
     class Meta:
         ordering = ["-created_at"]

@@ -2,6 +2,7 @@ from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 
 from apps.ad_spaces.admin_serializers import AdSpaceAdminSerializer
+from apps.ad_spaces.gallery import apply_ad_space_gallery_from_request
 from apps.ad_spaces.models import AdSpace
 from apps.users.base_viewsets import AdminModelViewSet
 from apps.workspaces.tenant import get_workspace_for_request
@@ -27,13 +28,15 @@ class AdSpaceAdminViewSet(AdminModelViewSet):
 
     def perform_create(self, serializer):
         self._assert_center_in_tenant(serializer.validated_data.get("shopping_center"))
-        serializer.save()
+        instance = serializer.save()
+        apply_ad_space_gallery_from_request(instance, self.request)
 
     def perform_update(self, serializer):
         center = serializer.validated_data.get("shopping_center")
         if center is not None:
             self._assert_center_in_tenant(center)
-        serializer.save()
+        instance = serializer.save()
+        apply_ad_space_gallery_from_request(instance, self.request)
 
     def get_queryset(self):
         qs = AdSpace.objects.select_related("shopping_center").all().order_by(
@@ -54,4 +57,4 @@ class AdSpaceAdminViewSet(AdminModelViewSet):
                     | Q(shopping_center__code__icontains=search)
                     | Q(shopping_center__name__icontains=search)
                 )
-        return qs
+        return qs.prefetch_related("gallery_images")

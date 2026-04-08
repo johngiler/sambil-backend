@@ -1,10 +1,12 @@
 """Checkout sin sesión: crea empresa (Client), orden enviada y opcionalmente usuario marketplace."""
 
+import json
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import serializers, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -12,8 +14,12 @@ from rest_framework.views import APIView
 
 from apps.catalog_access import shopping_center_allows_public_catalog
 from apps.clients.models import Client, ClientStatus
-from apps.orders.models import Order, OrderItem, OrderStatus
-from apps.orders.serializers import OrderItemWriteSerializer, OrderSerializer
+from apps.orders.models import Order, OrderItem, OrderPaymentMethod, OrderStatus
+from apps.orders.serializers import (
+    OrderItemWriteSerializer,
+    OrderSerializer,
+    validate_order_receipt_file,
+)
 from apps.orders.services import log_order_status_transition, submit_draft_order
 from apps.users.admin_serializers import revoke_django_privileges
 from apps.users.models import UserProfile
@@ -187,6 +193,9 @@ class GuestCheckoutSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, required=False, allow_blank=True, default="")
     password_confirm = serializers.CharField(write_only=True, required=False, allow_blank=True, default="")
     items = OrderItemWriteSerializer(many=True)
+    payment_method = serializers.CharField(
+        max_length=32, required=False, allow_blank=True, default=""
+    )
 
     def validate_items(self, value):
         if not value:
@@ -211,6 +220,15 @@ class GuestCheckoutSerializer(serializers.Serializer):
             raise serializers.ValidationError("Indica un teléfono de contacto.")
         return s
 
+    def validate_payment_method(self, value):
+        v = (value or "").strip()
+        if not v:
+            return ""
+        valid = {c[0] for c in OrderPaymentMethod.choices}
+        if v not in valid:
+            raise serializers.ValidationError("Método de pago no válido.")
+        return v
+
     def validate(self, attrs):
         if attrs.get("create_account"):
             p1 = (attrs.get("password") or "").strip()
@@ -232,11 +250,16 @@ class GuestCheckoutView(APIView):
     Crea o actualiza Client por correo en el workspace (sin duplicar por email).
     Si ese cliente ya tiene usuario marketplace, se pide iniciar sesión.
     Genera orden enviada. Opcionalmente crea usuario con contraseña (crear cuenta al comprar).
+
+    Cuerpo JSON (comportamiento anterior) o multipart/form-data con:
+    - ``payload``: cadena JSON con los mismos campos que el POST JSON (incl. ``payment_method`` opcional).
+    - ``payment_receipt``: archivo opcional (imagen o PDF).
     """
 
     permission_classes = [AllowAny]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "guest_checkout"
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request, *args, **kwargs):
         ws = get_workspace_for_request(request)
@@ -248,7 +271,28 @@ class GuestCheckoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        ser = GuestCheckoutSerializer(data=request.data)
+        payment_receipt = None
+        payload_in = request.data
+        content_type = (request.content_type or "").lower()
+        if "multipart/form-data" in content_type:
+            raw = request.data.get("payload")
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                return Response(
+                    {
+                        "detail": "Con archivo o multipart, envía el cuerpo del checkout en el campo «payload» (JSON).",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                payload_in = json.loads(raw) if isinstance(raw, str) else raw
+            except (TypeError, json.JSONDecodeError):
+                return Response(
+                    {"detail": "El campo «payload» debe ser JSON válido."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            payment_receipt = request.FILES.get("payment_receipt")
+
+        ser = GuestCheckoutSerializer(data=payload_in)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
         email = data["email"].strip().lower()
@@ -318,6 +362,8 @@ class GuestCheckoutView(APIView):
                 )
 
         try:
+            if payment_receipt is not None:
+                validate_order_receipt_file(payment_receipt)
             with transaction.atomic():
                 order = Order.objects.create(
                     client=client,
@@ -360,6 +406,17 @@ class GuestCheckoutView(APIView):
                     actor_user = user
 
                 submit_draft_order(order, actor=actor_user)
+
+                pm = (data.get("payment_method") or "").strip()
+                update_fields = []
+                if pm:
+                    order.payment_method = pm
+                    update_fields.append("payment_method")
+                if payment_receipt is not None:
+                    order.payment_receipt = payment_receipt
+                    update_fields.append("payment_receipt")
+                if update_fields:
+                    order.save(update_fields=update_fields)
         except serializers.ValidationError as e:
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 

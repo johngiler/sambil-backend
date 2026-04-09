@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
-from django.db.models import Count, Q
+from django.db.models import Avg, Count, Max, Min, Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework.response import Response
@@ -29,6 +29,11 @@ _EMPTY = {
         "clients": 0,
         "users": 0,
         "orders": 0,
+    },
+    "economics": {
+        "avg_monthly_price_usd_per_space": None,
+        "min_monthly_price_usd_per_space": None,
+        "max_monthly_price_usd_per_space": None,
     },
     "orders_by_status": [],
     "spaces_by_status": [],
@@ -58,6 +63,21 @@ class AdminDashboardStatsView(APIView):
 
         spaces_qs = AdSpace.objects.filter(shopping_center__workspace=ws)
         n_spaces = spaces_qs.count()
+
+        price_agg = spaces_qs.aggregate(
+            avg=Avg("monthly_price_usd"),
+            min=Min("monthly_price_usd"),
+            max=Max("monthly_price_usd"),
+        )
+
+        def _fnum(x):
+            if x is None:
+                return None
+            return float(x)
+
+        avg_monthly_price_usd_per_space = _fnum(price_agg.get("avg"))
+        min_monthly_price_usd_per_space = _fnum(price_agg.get("min"))
+        max_monthly_price_usd_per_space = _fnum(price_agg.get("max"))
 
         spaces_by_status = [
             {"status": row["status"], "count": row["c"]}
@@ -122,6 +142,11 @@ class AdminDashboardStatsView(APIView):
                     "clients": n_clients,
                     "users": n_users,
                     "orders": n_orders,
+                },
+                "economics": {
+                    "avg_monthly_price_usd_per_space": avg_monthly_price_usd_per_space,
+                    "min_monthly_price_usd_per_space": min_monthly_price_usd_per_space,
+                    "max_monthly_price_usd_per_space": max_monthly_price_usd_per_space,
                 },
                 "orders_by_status": orders_by_status,
                 "spaces_by_status": spaces_by_status,

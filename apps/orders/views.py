@@ -1,3 +1,5 @@
+import re
+
 from django.db.models import Prefetch, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -18,6 +20,28 @@ from apps.users.utils import get_marketplace_client, user_is_admin
 from apps.workspaces.tenant import get_workspace_for_request
 
 
+def _build_order_admin_list_search_q(search: str) -> Q:
+    """
+    Búsqueda en listado admin: nombre de cliente, id numérico del pedido o referencia
+    tipo #SLUG-ORDER-000004 (con o sin #, espacios ignorados), y texto en code.
+    """
+    raw = search.strip()
+    q = Q(client__company_name__icontains=raw) | Q(code__icontains=raw)
+    norm = re.sub(r"\s+", "", raw).upper()
+    if norm.isdigit():
+        try:
+            q |= Q(pk=int(norm))
+        except (ValueError, OverflowError):
+            pass
+    m = re.search(r"-ORDER-(\d+)$", norm)
+    if m:
+        try:
+            q |= Q(pk=int(m.group(1)))
+        except (ValueError, OverflowError):
+            pass
+    return q
+
+
 class OrderViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -31,7 +55,7 @@ class OrderViewSet(
 
     def get_queryset(self):
         qs = (
-            Order.objects.select_related("client")
+            Order.objects.select_related("client", "client__workspace")
             .prefetch_related(
                 Prefetch(
                     "items",
@@ -66,10 +90,7 @@ class OrderViewSet(
                 qs = qs.filter(status=st)
             search = self.request.query_params.get("search", "").strip()
             if search:
-                q = Q(client__company_name__icontains=search)
-                if search.isdigit():
-                    q |= Q(pk=int(search))
-                qs = qs.filter(q)
+                qs = qs.filter(_build_order_admin_list_search_q(search))
         return qs
 
     def get_serializer_class(self):

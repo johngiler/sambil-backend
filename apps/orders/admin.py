@@ -17,6 +17,7 @@ class OrderStatusEventInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("id", "client", "status", "total_amount", "created_at")
+    list_display = ("code", "id", "client", "status", "total_amount", "created_at")
     list_filter = ("status",)
+    readonly_fields = ("code",)
     inlines = [OrderItemInline, OrderStatusEventInline]

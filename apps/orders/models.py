@@ -59,11 +59,45 @@ class Order(TimeStampedActiveModel):
         null=True,
         help_text="Comprobante subido por el cliente en checkout.",
     )
+    code = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        unique=True,
+        db_index=True,
+        help_text="Código único de pedido (#SLUG-ORDER-000001). Se asigna al crear.",
+    )
 
     class Meta:
         ordering = ["-created_at"]
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not (self.code or "").strip():
+            self._assign_code()
+
+    def _assign_code(self):
+        from apps.clients.models import Client
+        from apps.orders.references import format_order_public_reference
+
+        slug = ""
+        if self.client_id:
+            row = (
+                Client.objects.select_related("workspace")
+                .filter(pk=self.client_id)
+                .only("workspace__slug")
+                .first()
+            )
+            if row and row.workspace_id:
+                slug = row.workspace.slug or ""
+        ref = format_order_public_reference(self.pk, slug)
+        Order.objects.filter(pk=self.pk).update(code=ref)
+        self.code = ref
+
     def __str__(self):
+        ref = (self.code or "").strip()
+        if ref:
+            return f"{ref} ({self.get_status_display()})"
         return f"Order {self.pk} ({self.status})"
 
 

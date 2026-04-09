@@ -161,10 +161,14 @@ class OrderSerializer(serializers.ModelSerializer):
         source="status_events", many=True, read_only=True
     )
     status_label = serializers.SerializerMethodField()
+    code = serializers.CharField(read_only=True)
     payment_method_label = serializers.SerializerMethodField()
     payment_receipt_url = serializers.SerializerMethodField()
     client_company_name = serializers.CharField(
         source="client.company_name", read_only=True
+    )
+    workspace_slug = serializers.CharField(
+        source="client.workspace.slug", read_only=True
     )
     client_detail = OrderClientSnapshotSerializer(source="client", read_only=True)
 
@@ -174,6 +178,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "id",
             "client",
             "client_company_name",
+            "workspace_slug",
+            "code",
             "client_detail",
             "status",
             "status_label",
@@ -197,6 +203,8 @@ class OrderSerializer(serializers.ModelSerializer):
             "payment_method",
             "payment_method_label",
             "payment_receipt_url",
+            "workspace_slug",
+            "code",
         )
 
     def get_status_label(self, obj):

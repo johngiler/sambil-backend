@@ -2,10 +2,9 @@
 Carga datos reales de catálogo: centros SCC (Sambil Chacao) y SLC (Sambil La Candelaria).
 
 - SCC-T1…SCC-T8: según el PDF «Sambil Caracas (1).pdf» (Chacao); imágenes planas TOMA 1A/1B, TOMA 2…
-- SLC: carpetas con nomenclatura histórica CAND-* bajo «Sambil La Candelaria»; se relacionan con
-  la misma *lógica de capítulos* que el PDF de Chacao (accesos/sur → gigantografías por plaza →
-  cinturones y pendones), no hay PDF de Candelaria en el repositorio. SLC-T1A / SLC-T1B coinciden
-  con el inventario oficial (ascensor entrada sur: vista calle / vista mall).
+- SLC: datos según PDF «Sambil La Candelaria.pdf»; cada fila enlaza una carpeta CAND-* del paquete
+  de imágenes (mapeo documentado en el código). Al reimportar se eliminan tomas SLC cuyo código ya
+  no esté en el catálogo.
 
 Uso (puedes pasar una o ambas carpetas):
   python manage.py seed_production_catalog \\
@@ -57,6 +56,34 @@ def _patterns_for_scc_code(code: str) -> list[re.Pattern[str]]:
     return [re.compile(rf"^TOMA\s*{n}(?:[\s\._\(]|$)", re.IGNORECASE)]
 
 
+def _is_readable_image_file(path: Path) -> bool:
+    """True si el archivo es una imagen raster legible (Pillow); excluye vacíos y corruptos."""
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        if not path.is_file():
+            return False
+        if path.stat().st_size == 0:
+            return False
+        with Image.open(path) as im:
+            im.verify()
+    except (OSError, UnidentifiedImageError, ValueError, SyntaxError):
+        return False
+    return True
+
+
+def _filter_seed_image_paths(paths: list[Path]) -> tuple[list[Path], list[str]]:
+    """Devuelve rutas válidas y nombres omitidos (no imagen / corrupto / 0 bytes)."""
+    valid: list[Path] = []
+    skipped: list[str] = []
+    for p in paths:
+        if _is_readable_image_file(p):
+            valid.append(p)
+        else:
+            skipped.append(p.name)
+    return valid, skipped
+
+
 def _sort_gallery_paths(paths: list[Path]) -> list[Path]:
     """Orden: archivo base sin (n) primero; luego (1), (2), …; después orden alfabético del nombre."""
 
@@ -96,35 +123,32 @@ def _collect_cand_folder_images(candelaria_dir: Path, folder_name: str) -> list[
 
 def _slc_toma_definitions():
     """
-    Una fila por carpeta bajo «Sambil La Candelaria». Orden aproximado al PDF de Chacao:
-    (1) accesos / sur / ascensor, (2) gigantografías por plaza, (3) cinturones AB, (4) pendón PE,
-    (5) cinturones NP/NM/NG/NS.
+    Catálogo según PDF «Sambil La Candelaria.pdf» (espacios publicitarios).
+    Cada `source_folder` enlaza la carpeta CAND-* del paquete de fotos (mapeo plano ↔ ficha).
 
-    Canon mensual en USD: el PDF entregado es de Chacao; aquí va 1.00 como marcador hasta cargar
-    tarifario real en el admin (el texto lo indica).
+    Las carpetas CAND-NM/NG/NS adicionales no tienen ficha numérica propia en el PDF; no se crean
+    tomas extra: puedes asociar esas fotos manualmente o ampliar este listado cuando lo definan.
     """
-    _p = Decimal("1.00")
     return [
         {
             "code": "SLC-T1A",
             "source_folder": "CAND-SUR-A00",
             "type": AdSpaceType.ELEVATOR,
-            "title": "Ascensor entrada sur — vista calle",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
+            "title": "TOMA 1A — Ascensor cara a la calle",
+            "monthly_price_usd": Decimal("3200.00"),
+            "width": Decimal("2.43"),
+            "height": Decimal("7.50"),
             "quantity": 1,
             "double_sided": False,
             "venue_zone": "Entrada sur",
             "level": "",
-            "material": "",
+            "material": "Vinil",
             "description": (
-                "Espacio publicitario asociado al ascensor en entrada sur (referencia a calle). "
-                "Imágenes: carpeta histórica CAND-SUR-A00 (planos espacio 5). "
-                "Precio mensual (USD): pendiente de asignar en administración (valor 1,00 es marcador de importación)."
+                "Ascensor de cara a la calle. Vista hacia la calle. "
+                "Medidas 2,43 × 7,50 m, cantidad 1."
             ),
-            "location_description": "Sambil La Candelaria — sector sur.",
-            "production_specs": "",
+            "location_description": "Entrada sur, Sambil La Candelaria.",
+            "production_specs": "Material: vinil.",
             "installation_notes": "",
             "hem_pocket_top_cm": None,
         },
@@ -132,377 +156,286 @@ def _slc_toma_definitions():
             "code": "SLC-T1B",
             "source_folder": "CAND-AB-A01",
             "type": AdSpaceType.ELEVATOR,
-            "title": "Ascensor entrada sur — vista interior (mall)",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
+            "title": "TOMA 1B — Ascensor cara al mall",
+            "monthly_price_usd": Decimal("1700.00"),
+            "width": Decimal("2.43"),
+            "height": Decimal("4.00"),
             "quantity": 1,
             "double_sided": False,
-            "venue_zone": "Entrada sur — interior",
+            "venue_zone": "Salida sur",
             "level": "",
-            "material": "",
+            "material": "Vinil",
             "description": (
-                "Espacio publicitario asociado al ascensor en entrada sur (vista hacia el interior del mall). "
-                "Imágenes: CAND-AB-A01. "
-                "Precio mensual (USD): pendiente de asignar en administración (valor 1,00 es marcador de importación)."
+                "Ascensor de cara al interior del centro comercial. Vista interna. "
+                "Medidas 2,43 × 4,00 m, cantidad 1."
             ),
-            "location_description": "Sambil La Candelaria — acceso interior.",
-            "production_specs": "",
+            "location_description": "Salida sur (interior), Sambil La Candelaria.",
+            "production_specs": "Material: vinil.",
             "installation_notes": "",
             "hem_pocket_top_cm": None,
         },
         {
             "code": "SLC-T2",
-            "source_folder": "CAND-AB-PA01-ACC N",
-            "type": AdSpaceType.OTHER,
-            "title": "Pasillo acceso PA01 — Acceso norte (código CAND)",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
+            "source_folder": "CAND-AB-PE02",
+            "type": AdSpaceType.BANNER,
+            "title": "TOMA 2 — Acceso al estacionamiento vertical",
+            "monthly_price_usd": Decimal("1200.00"),
+            "width": Decimal("1.90"),
+            "height": Decimal("1.10"),
+            "quantity": 2,
             "double_sided": False,
-            "venue_zone": "Acceso / pasillo",
-            "level": "",
-            "material": "",
+            "venue_zone": "Puertas de acceso al estacionamiento vertical",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil impreso sobre PVC",
             "description": (
-                "Superficie referenciada por la carpeta histórica CAND-AB-PA01-ACC N (aprox. equivalente a "
-                "«accesos / circulación» en el PDF de Chacao). "
-                "Precio mensual (USD): pendiente de asignar en administración."
+                "Ubicación en nivel Andrés Bello, puertas de acceso al estacionamiento vertical. "
+                "Medidas 1,90 × 1,10 m, cantidad 2."
             ),
-            "location_description": "La Candelaria — nomenclatura interna PA01 / ACC N.",
-            "production_specs": "",
-            "installation_notes": "",
+            "location_description": "Parte superior de las puertas, nivel Andrés Bello.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Montaje en parte superior de las puertas.",
             "hem_pocket_top_cm": None,
         },
         {
-            "code": "SLC-T3",
-            "source_folder": "CAND-ZG01-PZA E",
-            "type": AdSpaceType.GIGANTOGRAFIA_FACHADA,
-            "title": "Gigantografía — ZG01 Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
+            "code": "SLC-T3A",
+            "source_folder": "CAND-AB-CINT02-LAT",
+            "type": AdSpaceType.PENDON_PASILLO,
+            "title": "TOMA 3A — Cintillo lateral plaza oeste",
+            "monthly_price_usd": Decimal("1500.00"),
+            "width": Decimal("7.00"),
+            "height": Decimal("0.48"),
             "quantity": 1,
             "double_sided": False,
-            "venue_zone": "Plaza Este",
-            "level": "",
-            "material": "",
+            "venue_zone": "Laterales plaza oeste",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil impreso sobre PVC",
+            "description": "Cintillo 7,00 × 0,48 m, cantidad 1, laterales plaza oeste.",
+            "location_description": "Nivel Andrés Bello, laterales plaza oeste.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
+            "hem_pocket_top_cm": None,
+        },
+        {
+            "code": "SLC-T3B",
+            "source_folder": "CAND-AB-CINT02-LAT-PZA E",
+            "type": AdSpaceType.PENDON_PASILLO,
+            "title": "TOMA 3B — Cintillo lateral plaza oeste (tramo complementario)",
+            "monthly_price_usd": Decimal("1500.00"),
+            "width": Decimal("7.00"),
+            "height": Decimal("0.48"),
+            "quantity": 1,
+            "double_sided": False,
+            "venue_zone": "Laterales plaza oeste",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil impreso sobre PVC",
             "description": (
-                "Formato grande (ZG) en Plaza Este; análogo a capítulo de gigantografías/fachadas del PDF de Chacao. "
-                "Precio y medidas: completar en administración."
+                "Segundo cintillo de la ficha TOMA 3 (mismas medidas y canon que 3A). "
+                "Imágenes en carpeta complementaria del paquete."
             ),
-            "location_description": "Plaza Este — CAND-ZG01-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
+            "location_description": "Nivel Andrés Bello, laterales plaza oeste.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
             "hem_pocket_top_cm": None,
         },
         {
             "code": "SLC-T4",
-            "source_folder": "CAND-ZG01-PZA O",
-            "type": AdSpaceType.GIGANTOGRAFIA_FACHADA,
-            "title": "Gigantografía — ZG01 Plaza Oeste",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
+            "source_folder": "CAND-AB-CINT01-CENTRAL",
+            "type": AdSpaceType.PENDON_PLAZA,
+            "title": "TOMA 4 — Cintillo plaza oeste",
+            "monthly_price_usd": Decimal("3000.00"),
+            "width": Decimal("20.00"),
+            "height": Decimal("0.48"),
             "quantity": 1,
             "double_sided": False,
-            "venue_zone": "Plaza Oeste",
-            "level": "",
-            "material": "",
+            "venue_zone": "Plaza oeste",
+            "level": "Nivel Miranda (según ficha del PDF)",
+            "material": "Vinil impreso sobre PVC",
             "description": (
-                "Formato grande (ZG) en Plaza Oeste. Precio y medidas: completar en administración."
+                "Cintillo 20,00 × 0,48 m, cantidad 1. "
+                "El PDF indica ubicación «Nivel Miranda, plaza oeste» (el plano de sección menciona también Andrés Bello)."
             ),
-            "location_description": "Plaza Oeste — CAND-ZG01-PZA O.",
-            "production_specs": "",
-            "installation_notes": "",
+            "location_description": "Plaza oeste; parte superior.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
             "hem_pocket_top_cm": None,
         },
         {
-            "code": "SLC-T5",
+            "code": "SLC-T5A",
             "source_folder": "CAND-AB-CINT00",
-            "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Cinturón publicitario AB — CINT00",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
+            "type": AdSpaceType.PENDON_PLAZA,
+            "title": "TOMA 5A — Cintillo plaza oeste",
+            "monthly_price_usd": Decimal("1000.00"),
+            "width": Decimal("2.10"),
+            "height": Decimal("0.48"),
             "quantity": 1,
             "double_sided": False,
-            "venue_zone": "Cinturón / corredor",
-            "level": "Ala baja",
-            "material": "",
-            "description": (
-                "Paquete visual en corredor (cinturón 00), equivalente conceptual a pendones de pasillo del PDF de Chacao. "
-                "Medidas y canon: completar en administración."
-            ),
-            "location_description": "CAND-AB-CINT00.",
-            "production_specs": "",
-            "installation_notes": "",
+            "venue_zone": "Plaza oeste",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil impreso sobre PVC",
+            "description": "Cintillo 2,10 × 0,48 m, cantidad 1.",
+            "location_description": "Nivel Andrés Bello, plaza oeste; parte superior.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
             "hem_pocket_top_cm": None,
         },
         {
-            "code": "SLC-T6",
+            "code": "SLC-T5B",
             "source_folder": "CAND-AB-CINT00-PZA E",
             "type": AdSpaceType.PENDON_PLAZA,
-            "title": "Cinturón AB — CINT00 frente Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
+            "title": "TOMA 5B — Cintillo plaza este",
+            "monthly_price_usd": Decimal("1000.00"),
+            "width": Decimal("2.10"),
+            "height": Decimal("0.48"),
             "quantity": 1,
             "double_sided": False,
-            "venue_zone": "Plaza Este",
-            "level": "Ala baja",
-            "material": "",
-            "description": "Cinturón 00 con referencia a Plaza Este. Medidas y canon: completar en administración.",
-            "location_description": "CAND-AB-CINT00-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
+            "venue_zone": "Plaza este",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil impreso sobre PVC",
+            "description": "Cintillo 2,10 × 0,48 m, cantidad 1.",
+            "location_description": "Nivel Andrés Bello, plaza este; parte superior.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
             "hem_pocket_top_cm": None,
         },
         {
-            "code": "SLC-T7",
-            "source_folder": "CAND-AB-CINT01-CENTRAL",
+            "code": "SLC-T6A",
+            "source_folder": "CAND-AB-CINT03-LAT",
             "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Cinturón AB — CINT01 central",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
+            "title": "TOMA 6A — Cintillo lateral plaza este",
+            "monthly_price_usd": Decimal("1500.00"),
+            "width": Decimal("7.00"),
+            "height": Decimal("0.48"),
             "quantity": 1,
             "double_sided": False,
-            "venue_zone": "Corredor central",
-            "level": "Ala baja",
-            "material": "",
-            "description": "Cinturón central 01. Medidas y canon: completar en administración.",
-            "location_description": "CAND-AB-CINT01-CENTRAL.",
-            "production_specs": "",
-            "installation_notes": "",
+            "venue_zone": "Laterales plaza este",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil impreso sobre PVC",
+            "description": "Cintillo 7,00 × 0,48 m, cantidad 1.",
+            "location_description": "Nivel Andrés Bello, laterales plaza este.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
+            "hem_pocket_top_cm": None,
+        },
+        {
+            "code": "SLC-T6B",
+            "source_folder": "CAND-AB-CINT03-LAT-PZA E",
+            "type": AdSpaceType.PENDON_PASILLO,
+            "title": "TOMA 6B — Cintillo lateral plaza este (tramo complementario)",
+            "monthly_price_usd": Decimal("1500.00"),
+            "width": Decimal("7.00"),
+            "height": Decimal("0.48"),
+            "quantity": 1,
+            "double_sided": False,
+            "venue_zone": "Laterales plaza este",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil impreso sobre PVC",
+            "description": "Segundo cintillo de la ficha TOMA 6 (mismas medidas y canon que 6A).",
+            "location_description": "Nivel Andrés Bello, laterales plaza este.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
+            "hem_pocket_top_cm": None,
+        },
+        {
+            "code": "SLC-T7A",
+            "source_folder": "CAND-NP-CINT01-CENTRAL-PZA E",
+            "type": AdSpaceType.PENDON_PLAZA,
+            "title": "TOMA 7A — Cintillo plaza este (nivel galería)",
+            "monthly_price_usd": Decimal("2000.00"),
+            "width": Decimal("13.00"),
+            "height": Decimal("0.48"),
+            "quantity": 1,
+            "double_sided": False,
+            "venue_zone": "Plaza este",
+            "level": "Nivel galería",
+            "material": "Vinil impreso sobre PVC",
+            "description": "Cintillo 13,00 × 0,48 m, cantidad 1. Ubicación: plaza este, nivel galería (texto del PDF).",
+            "location_description": "Plaza este, nivel galería; parte superior.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
+            "hem_pocket_top_cm": None,
+        },
+        {
+            "code": "SLC-T7B",
+            "source_folder": "CAND-NP-CINT04-CENTRAL",
+            "type": AdSpaceType.PENDON_PLAZA,
+            "title": "TOMA 7B — Cintillo plaza este (nivel Miranda)",
+            "monthly_price_usd": Decimal("2500.00"),
+            "width": Decimal("17.00"),
+            "height": Decimal("0.48"),
+            "quantity": 1,
+            "double_sided": False,
+            "venue_zone": "Plaza este",
+            "level": "Nivel Miranda",
+            "material": "Vinil impreso sobre PVC",
+            "description": "Cintillo 17,00 × 0,48 m, cantidad 1. Ubicación: plaza este, nivel Miranda (texto del PDF).",
+            "location_description": "Plaza este, nivel Miranda; parte superior.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Parte superior.",
             "hem_pocket_top_cm": None,
         },
         {
             "code": "SLC-T8",
-            "source_folder": "CAND-AB-CINT02-LAT",
-            "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Cinturón AB — CINT02 lateral",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
+            "source_folder": "CAND-AB-PA01-ACC N",
+            "type": AdSpaceType.BANNER,
+            "title": "TOMA 8 — Vidrios acceso norte",
+            "monthly_price_usd": Decimal("2000.00"),
+            "width": Decimal("1.45"),
+            "height": Decimal("0.90"),
+            "quantity": 10,
             "double_sided": False,
-            "venue_zone": "Corredor lateral",
-            "level": "Ala baja",
-            "material": "",
-            "description": "Cinturón lateral 02. Medidas y canon: completar en administración.",
-            "location_description": "CAND-AB-CINT02-LAT.",
-            "production_specs": "",
-            "installation_notes": "",
+            "venue_zone": "Acceso norte",
+            "level": "Nivel Andrés Bello",
+            "material": "Vinil rotulado",
+            "description": (
+                "Diez piezas de 1,45 × 0,90 m en vidrios de acceso norte, nivel Andrés Bello."
+            ),
+            "location_description": "Nivel Andrés Bello, acceso norte; parte superior.",
+            "production_specs": "Vinil rotulado.",
+            "installation_notes": "Parte superior.",
             "hem_pocket_top_cm": None,
         },
         {
-            "code": "SLC-T9",
-            "source_folder": "CAND-AB-CINT02-LAT-PZA E",
-            "type": AdSpaceType.PENDON_PLAZA,
-            "title": "Cinturón AB — CINT02 lateral Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
+            "code": "SLC-T9A",
+            "source_folder": "CAND-ZG01-PZA O",
+            "type": AdSpaceType.BANNER,
+            "title": "TOMA 9A — Vinil jardinera zona gourmet (plaza oeste)",
+            "monthly_price_usd": Decimal("1200.00"),
+            "width": Decimal("2.10"),
+            "height": Decimal("0.77"),
+            "quantity": 2,
             "double_sided": False,
-            "venue_zone": "Plaza Este",
-            "level": "Ala baja",
-            "material": "",
-            "description": "Cinturón 02 lateral con referencia Plaza Este. Medidas y canon: completar en administración.",
-            "location_description": "CAND-AB-CINT02-LAT-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T10",
-            "source_folder": "CAND-AB-CINT03-LAT",
-            "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Cinturón AB — CINT03 lateral",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Corredor lateral",
-            "level": "Ala baja",
-            "material": "",
-            "description": "Cinturón lateral 03. Medidas y canon: completar en administración.",
-            "location_description": "CAND-AB-CINT03-LAT.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T11",
-            "source_folder": "CAND-AB-CINT03-LAT-PZA E",
-            "type": AdSpaceType.PENDON_PLAZA,
-            "title": "Cinturón AB — CINT03 lateral Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Plaza Este",
-            "level": "Ala baja",
-            "material": "",
-            "description": "Cinturón 03 lateral con referencia Plaza Este. Medidas y canon: completar en administración.",
-            "location_description": "CAND-AB-CINT03-LAT-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T12",
-            "source_folder": "CAND-AB-PE02",
-            "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Pendón — PE02 (ala baja)",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Pasillo / circulación",
-            "level": "Ala baja",
-            "material": "",
-            "description": "Superficie PE02. Medidas y canon: completar en administración.",
-            "location_description": "CAND-AB-PE02.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T13",
-            "source_folder": "CAND-NP-CINT01-CENTRAL-PZA E",
-            "type": AdSpaceType.PENDON_PLAZA,
-            "title": "Cinturón NP — CINT01 central Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Plaza Este",
+            "venue_zone": "Zona gourmet, plaza oeste",
             "level": "",
-            "material": "",
-            "description": "Cinturón nomenclatura NP. Medidas y canon: completar en administración.",
-            "location_description": "CAND-NP-CINT01-CENTRAL-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
+            "material": "Vinil impreso sobre PVC",
+            "description": (
+                "Dos piezas 2,10 × 0,77 m en jardinera. "
+                "El PDF indica «Plaza oeste zona gourmet» en la ficha 9A."
+            ),
+            "location_description": "Jardinera, zona gourmet plaza oeste.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Jardinera.",
             "hem_pocket_top_cm": None,
         },
         {
-            "code": "SLC-T14",
-            "source_folder": "CAND-NP-CINT04-CENTRAL",
-            "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Cinturón NP — CINT04 central",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
+            "code": "SLC-T9B",
+            "source_folder": "CAND-ZG01-PZA E",
+            "type": AdSpaceType.BANNER,
+            "title": "TOMA 9B — Vinil jardinera zona gourmet (plaza este)",
+            "monthly_price_usd": Decimal("1200.00"),
+            "width": Decimal("2.10"),
+            "height": Decimal("0.77"),
+            "quantity": 2,
             "double_sided": False,
-            "venue_zone": "Corredor central",
+            "venue_zone": "Zona gourmet, plaza este",
             "level": "",
-            "material": "",
-            "description": "Cinturón NP CINT04. Medidas y canon: completar en administración.",
-            "location_description": "CAND-NP-CINT04-CENTRAL.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T15",
-            "source_folder": "CAND-NM-CINT02-CENTRAL-PZA E",
-            "type": AdSpaceType.PENDON_PLAZA,
-            "title": "Cinturón NM — CINT02 central Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Plaza Este",
-            "level": "",
-            "material": "",
-            "description": "Cinturón nomenclatura NM. Medidas y canon: completar en administración.",
-            "location_description": "CAND-NM-CINT02-CENTRAL-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T16",
-            "source_folder": "CAND-NG-CINT03-CENTRAL",
-            "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Cinturón NG — CINT03 central",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Corredor central",
-            "level": "",
-            "material": "",
-            "description": "Cinturón nomenclatura NG. Medidas y canon: completar en administración.",
-            "location_description": "CAND-NG-CINT03-CENTRAL.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T17",
-            "source_folder": "CAND-NG-CINT03-CENTRAL-PZA E",
-            "type": AdSpaceType.PENDON_PLAZA,
-            "title": "Cinturón NG — CINT03 central Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Plaza Este",
-            "level": "",
-            "material": "",
-            "description": "Cinturón NG con referencia Plaza Este. Medidas y canon: completar en administración.",
-            "location_description": "CAND-NG-CINT03-CENTRAL-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T18",
-            "source_folder": "CAND-NS-CINT05-CENTRAL",
-            "type": AdSpaceType.PENDON_PASILLO,
-            "title": "Cinturón NS — CINT05 central",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Corredor central",
-            "level": "",
-            "material": "",
-            "description": "Cinturón nomenclatura NS. Medidas y canon: completar en administración.",
-            "location_description": "CAND-NS-CINT05-CENTRAL.",
-            "production_specs": "",
-            "installation_notes": "",
-            "hem_pocket_top_cm": None,
-        },
-        {
-            "code": "SLC-T19",
-            "source_folder": "CAND-NS-CINT05-CENTRAL-PZA E",
-            "type": AdSpaceType.PENDON_PLAZA,
-            "title": "Cinturón NS — CINT05 central Plaza Este",
-            "monthly_price_usd": _p,
-            "width": None,
-            "height": None,
-            "quantity": 1,
-            "double_sided": False,
-            "venue_zone": "Plaza Este",
-            "level": "",
-            "material": "",
-            "description": "Cinturón NS con referencia Plaza Este. Medidas y canon: completar en administración.",
-            "location_description": "CAND-NS-CINT05-CENTRAL-PZA E.",
-            "production_specs": "",
-            "installation_notes": "",
+            "material": "Vinil impreso sobre PVC",
+            "description": (
+                "Dos piezas 2,10 × 0,77 m en jardinera. "
+                "El PDF indica «Plaza este, zona gourmet» en la ficha 9B."
+            ),
+            "location_description": "Jardinera, zona gourmet plaza este.",
+            "production_specs": "Vinil impreso sobre PVC.",
+            "installation_notes": "Jardinera.",
             "hem_pocket_top_cm": None,
         },
     ]
@@ -864,9 +797,16 @@ class Command(BaseCommand):
                 for spec in _scc_toma_definitions():
                     code = spec["code"]
                     paths = _collect_image_paths(chacao_dir, code)
+                    paths, skipped_img = _filter_seed_image_paths(paths)
+                    for name in skipped_img:
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"{code}: omitido «{name}» (vacío, corrupto o no es imagen válida)."
+                            )
+                        )
                     if not paths:
                         raise CommandError(
-                            f"No se encontraron imágenes para {code} en {chacao_dir}. "
+                            f"No se encontraron imágenes válidas para {code} en {chacao_dir}. "
                             "Revisa los nombres de archivo (TOMA 1A/1B, TOMA 2, …)."
                         )
 
@@ -887,13 +827,33 @@ class Command(BaseCommand):
 
             if candelaria_dir is not None:
                 assert slc is not None
+                slc_codes = {spec["code"] for spec in _slc_toma_definitions()}
+                orphan_qs = AdSpace.objects.filter(shopping_center=slc).exclude(code__in=slc_codes)
+                removed_spaces = orphan_qs.count()
+                if removed_spaces:
+                    orphan_qs.delete()
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"Eliminadas {removed_spaces} toma(s) SLC obsoletas del centro La Candelaria "
+                            "(códigos que ya no figuran en el catálogo del PDF)."
+                        )
+                    )
+
                 for spec in _slc_toma_definitions():
                     code = spec["code"]
                     folder = spec["source_folder"]
                     paths = _collect_cand_folder_images(candelaria_dir, folder)
+                    paths, skipped_img = _filter_seed_image_paths(paths)
+                    for name in skipped_img:
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"{code} [{folder}]: omitido «{name}» "
+                                "(vacío, corrupto o no es imagen válida)."
+                            )
+                        )
                     if not paths:
                         raise CommandError(
-                            f"No se encontraron imágenes para {code} en la carpeta «{folder}» "
+                            f"No se encontraron imágenes válidas para {code} en la carpeta «{folder}» "
                             f"bajo {candelaria_dir}."
                         )
 
@@ -936,5 +896,5 @@ class Command(BaseCommand):
         if chacao_dir is not None:
             parts.append("SCC (SCC-T1…SCC-T8)")
         if candelaria_dir is not None:
-            parts.append("SLC (SLC-T1A/T1B y SLC-T2…SLC-T19)")
+            parts.append("SLC (15 tomas PDF: SLC-T1A/T1B, T2–T9B)")
         self.stdout.write(self.style.SUCCESS(f"Catálogo listo: {', '.join(parts)}."))

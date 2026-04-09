@@ -1,0 +1,131 @@
+"""
+Agregados para el tab Resumen del panel (gráficos). Filtrado por workspace de la petición.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, time, timedelta
+
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
+from django.utils import timezone
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from apps.ad_spaces.models import AdSpace
+from apps.clients.models import Client
+from apps.malls.models import ShoppingCenter
+from apps.orders.models import Order
+from apps.users.permissions import IsAdminRole
+from apps.workspaces.tenant import get_workspace_for_request
+
+User = get_user_model()
+
+_EMPTY = {
+    "counts": {
+        "centers": 0,
+        "spaces": 0,
+        "clients": 0,
+        "users": 0,
+        "orders": 0,
+    },
+    "orders_by_status": [],
+    "spaces_by_status": [],
+    "orders_by_day": [],
+    "top_centers_by_spaces": [],
+}
+
+
+def _date_key(d):
+    if d is None:
+        return None
+    return d.date() if hasattr(d, "date") else d
+
+
+class AdminDashboardStatsView(APIView):
+    """GET: conteos, distribuciones y serie temporal para el dashboard admin."""
+
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        ws = get_workspace_for_request(request)
+        if ws is None:
+            return Response(_EMPTY)
+
+        centers_qs = ShoppingCenter.objects.filter(workspace=ws)
+        n_centers = centers_qs.count()
+
+        spaces_qs = AdSpace.objects.filter(shopping_center__workspace=ws)
+        n_spaces = spaces_qs.count()
+
+        spaces_by_status = [
+            {"status": row["status"], "count": row["c"]}
+            for row in spaces_qs.values("status").annotate(c=Count("id")).order_by("-c")
+        ]
+
+        clients_qs = Client.objects.filter(workspace=ws)
+        n_clients = clients_qs.count()
+
+        users_qs = (
+            User.objects.filter(is_staff=False, is_superuser=False)
+            .filter(Q(profile__workspace=ws) | Q(profile__client__workspace=ws))
+            .distinct()
+        )
+        n_users = users_qs.count()
+
+        orders_qs = Order.objects.filter(client__workspace=ws)
+        n_orders = orders_qs.count()
+
+        orders_by_status = [
+            {"status": row["status"], "count": row["c"]}
+            for row in orders_qs.values("status").annotate(c=Count("id")).order_by("-c")
+        ]
+
+        today = timezone.localdate()
+        start = today - timedelta(days=29)
+        start_dt = timezone.make_aware(datetime.combine(start, time.min))
+
+        orders_by_day_raw = (
+            orders_qs.filter(created_at__gte=start_dt)
+            .annotate(d=TruncDate("created_at"))
+            .values("d")
+            .annotate(c=Count("id"))
+            .order_by("d")
+        )
+        by_d = {}
+        for row in orders_by_day_raw:
+            k = _date_key(row["d"])
+            if k is not None:
+                by_d[k] = row["c"]
+
+        orders_by_day = []
+        for i in range(30):
+            d = start + timedelta(days=i)
+            orders_by_day.append({"date": d.isoformat(), "count": by_d.get(d, 0)})
+
+        top_centers = list(
+            centers_qs.annotate(space_count=Count("ad_spaces"))
+            .filter(space_count__gt=0)
+            .order_by("-space_count", "name")[:8]
+            .values("name", "space_count")
+        )
+        top_centers_by_spaces = [
+            {"name": row["name"], "count": row["space_count"]} for row in top_centers
+        ]
+
+        return Response(
+            {
+                "counts": {
+                    "centers": n_centers,
+                    "spaces": n_spaces,
+                    "clients": n_clients,
+                    "users": n_users,
+                    "orders": n_orders,
+                },
+                "orders_by_status": orders_by_status,
+                "spaces_by_status": spaces_by_status,
+                "orders_by_day": orders_by_day,
+                "top_centers_by_spaces": top_centers_by_spaces,
+            }
+        )

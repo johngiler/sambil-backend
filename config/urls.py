@@ -31,6 +31,8 @@ from apps.users.views import (
     SetInitialPasswordView,
     ValidatePasswordView,
 )
+from apps.workspaces.admin_activity_feed import AdminDashboardActivityView
+from apps.workspaces.admin_dashboard_stats import AdminDashboardStatsView
 from apps.workspaces.views import MyWorkspaceView, WorkspaceCurrentView
 
 router = DefaultRouter()
@@ -82,6 +84,16 @@ urlpatterns = [
     path("api/me/company/", MyCompanyView.as_view(), name="my-company"),
     path("api/me/workspace/", MyWorkspaceView.as_view(), name="me-workspace"),
     path("api/workspace/current/", WorkspaceCurrentView.as_view(), name="workspace-current"),
+    path(
+        "api/admin/dashboard/stats/",
+        AdminDashboardStatsView.as_view(),
+        name="admin-dashboard-stats",
+    ),
+    path(
+        "api/admin/dashboard/activity/",
+        AdminDashboardActivityView.as_view(),
+        name="admin-dashboard-activity",
+    ),
     path("api/auth/me/", MeView.as_view(), name="auth-me"),
     path("api/auth/me/password/", MePasswordView.as_view(), name="auth-me-password"),
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),

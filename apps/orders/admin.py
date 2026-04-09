@@ -17,7 +17,10 @@ class OrderStatusEventInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ("code", "id", "client", "status", "total_amount", "created_at")
+    list_display = ("code", "client", "status", "total_amount", "created_at")
     list_filter = ("status",)
     readonly_fields = ("code",)
     inlines = [OrderItemInline, OrderStatusEventInline]
+
+    class Media:
+        css = {"all": ("orders/admin/order_changelist.css",)}

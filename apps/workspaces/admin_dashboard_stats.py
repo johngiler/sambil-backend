@@ -18,6 +18,7 @@ from apps.clients.models import Client
 from apps.malls.models import ShoppingCenter
 from apps.orders.models import Order
 from apps.users.permissions import IsAdminRole
+from apps.workspaces.admin_dashboard_metrics import _empty_metrics, build_extended_metrics
 from apps.workspaces.tenant import get_workspace_for_request
 
 User = get_user_model()
@@ -39,6 +40,7 @@ _EMPTY = {
     "spaces_by_status": [],
     "orders_by_day": [],
     "top_centers_by_spaces": [],
+    "metrics": _empty_metrics(),
 }
 
 
@@ -134,6 +136,12 @@ class AdminDashboardStatsView(APIView):
             {"name": row["name"], "count": row["space_count"]} for row in top_centers
         ]
 
+        extended = build_extended_metrics(
+            ws=ws,
+            orders_qs=orders_qs,
+            spaces_qs=spaces_qs,
+        )
+
         return Response(
             {
                 "counts": {
@@ -152,5 +160,6 @@ class AdminDashboardStatsView(APIView):
                 "spaces_by_status": spaces_by_status,
                 "orders_by_day": orders_by_day,
                 "top_centers_by_spaces": top_centers_by_spaces,
+                "metrics": extended,
             }
         )

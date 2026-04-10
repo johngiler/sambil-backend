@@ -12,6 +12,11 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from apps.ad_spaces.admin_viewsets import AdSpaceAdminViewSet
 from apps.ad_spaces.views import AdSpaceViewSet
+from apps.clients.marketplace_client_views import (
+    MyContractsView,
+    MyFavoriteDetailView,
+    MyFavoritesView,
+)
 from apps.clients.views import ClientViewSet, MyCompanyView
 from apps.malls.admin_viewsets import ShoppingCenterAdminViewSet
 from apps.malls.views import ShoppingCenterViewSet
@@ -82,6 +87,13 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("api/catalog/", include(catalog_router.urls)),
     path("api/me/company/", MyCompanyView.as_view(), name="my-company"),
+    path("api/me/contracts/", MyContractsView.as_view(), name="my-contracts"),
+    path("api/me/favorites/", MyFavoritesView.as_view(), name="my-favorites"),
+    path(
+        "api/me/favorites/<int:ad_space_id>/",
+        MyFavoriteDetailView.as_view(),
+        name="my-favorite-detail",
+    ),
     path("api/me/workspace/", MyWorkspaceView.as_view(), name="me-workspace"),
     path("api/workspace/current/", WorkspaceCurrentView.as_view(), name="workspace-current"),
     path(

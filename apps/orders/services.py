@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
-
 from django.contrib.auth.models import AbstractBaseUser
+from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 
-from apps.orders.models import OrderStatus, OrderStatusEvent
+from apps.orders.models import Order, OrderStatus, OrderStatusEvent
 from apps.orders.validators import (
     ad_space_allows_marketplace_reservation,
     contract_meets_min_months,
@@ -15,12 +16,13 @@ from apps.orders.validators import (
     order_item_conflicts,
 )
 
-if TYPE_CHECKING:
-    from apps.orders.models import Order
+AUTO_EXPIRE_NOTE = (
+    "Vencimiento automático: la última línea del contrato ya superó su fecha de fin."
+)
 
 
 def log_order_status_transition(
-    order: "Order",
+    order: Order,
     from_status: str,
     to_status: str,
     *,
@@ -39,7 +41,7 @@ def log_order_status_transition(
     )
 
 
-def submit_draft_order(order: "Order", *, actor: AbstractBaseUser | None = None) -> "Order":
+def submit_draft_order(order: Order, *, actor: AbstractBaseUser | None = None) -> Order:
     """
     Pasa una orden de borrador a enviada (misma lógica que POST .../submit/).
     Lanza ValidationError de DRF si no aplica.
@@ -109,3 +111,56 @@ def submit_draft_order(order: "Order", *, actor: AbstractBaseUser | None = None)
     )
     order.refresh_from_db()
     return order
+
+
+def expire_active_orders_after_contract_end(
+    *,
+    today: date | None = None,
+    dry_run: bool = False,
+    actor: AbstractBaseUser | None = None,
+) -> dict:
+    """
+    Pasa a ``expired`` las órdenes en ``active`` cuya fecha de fin más tardía (entre ítems)
+    es anterior a ``today``. Las líneas no tienen estado propio: al vencer la orden dejan de
+    contar en ``PIPELINE_STATUSES`` y el calendario deja de reservar esas fechas.
+
+    Idempotente: órdenes ya ``expired`` no se tocan.
+
+    :param today: Fecha de corte (por defecto ``timezone.localdate()``).
+    :param dry_run: Si True, no escribe en BD; devuelve los IDs que se vencerían.
+    :param actor: Usuario que dispara el cambio (None = tarea automática).
+    :return: ``{"expired": int, "order_ids": list[int]}`` o en dry_run ``{"would_expire": int, "order_ids": ...}``.
+    """
+    ref = today if today is not None else timezone.localdate()
+    candidate_ids = list(
+        Order.objects.filter(status=OrderStatus.ACTIVE)
+        .annotate(last_end=Max("items__end_date"))
+        .filter(last_end__isnull=False, last_end__lt=ref)
+        .values_list("pk", flat=True)
+        .order_by("pk")
+    )
+    if dry_run:
+        return {"would_expire": len(candidate_ids), "order_ids": candidate_ids}
+
+    expired_n = 0
+    for pk in candidate_ids:
+        with transaction.atomic():
+            order = Order.objects.select_for_update().filter(pk=pk).first()
+            if order is None or order.status != OrderStatus.ACTIVE:
+                continue
+            agg = order.items.aggregate(m=Max("end_date"))
+            last_end = agg["m"]
+            if last_end is None or last_end >= ref:
+                continue
+            prev = order.status
+            Order.objects.filter(pk=pk, status=OrderStatus.ACTIVE).update(status=OrderStatus.EXPIRED)
+            order.refresh_from_db()
+            log_order_status_transition(
+                order,
+                prev,
+                OrderStatus.EXPIRED,
+                actor=actor,
+                note=AUTO_EXPIRE_NOTE,
+            )
+            expired_n += 1
+    return {"expired": expired_n, "order_ids": candidate_ids}

@@ -55,3 +55,30 @@ class Client(TimeStampedActiveModel):
 
     def __str__(self):
         return self.company_name
+
+
+class ClientAdSpaceFavorite(TimeStampedActiveModel):
+    """Toma marcada como favorita por un cliente (mismo workspace que el espacio)."""
+
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.CASCADE,
+        related_name="ad_space_favorites",
+    )
+    ad_space = models.ForeignKey(
+        "ad_spaces.AdSpace",
+        on_delete=models.CASCADE,
+        related_name="client_favorites",
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=("client", "ad_space"),
+                name="clients_favorite_client_ad_space_uniq",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.client_id} ♥ {self.ad_space_id}"

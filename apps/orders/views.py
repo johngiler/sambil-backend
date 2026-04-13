@@ -1,7 +1,6 @@
 import re
-from decimal import Decimal
 
-from django.db.models import Prefetch, Q, Sum
+from django.db.models import Prefetch, Q
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -57,31 +56,18 @@ _ORDER_PIPELINE_STATUSES = (
 
 def _client_orders_summary_for_list(*, client) -> dict:
     """
-    Totales globales del cliente para la cabecera de «Mis pedidos» (sin depender de filtros de página).
+    Conteos globales del cliente para la cabecera de «Mis pedidos» (sin depender de filtros de página).
+
+    Los borradores no entran: el cliente gestiona el carrito antes de enviar; «Mis pedidos» es pedidos ya enviados.
     """
-    base = Order.objects.filter(client=client)
-
-    committed = base.exclude(
-        status__in=(
-            OrderStatus.DRAFT,
-            OrderStatus.CANCELLED,
-            OrderStatus.REJECTED,
-        )
-    )
-    total_committed = committed.aggregate(s=Sum("total_amount"))["s"] or Decimal("0")
-
-    drafts = base.filter(status=OrderStatus.DRAFT)
-    draft_total = drafts.aggregate(s=Sum("total_amount"))["s"] or Decimal("0")
+    base = Order.objects.filter(client=client).exclude(status=OrderStatus.DRAFT)
 
     return {
-        "committed_total_subtotal": str(total_committed.quantize(Decimal("0.01"))),
-        "draft_total_subtotal": str(draft_total.quantize(Decimal("0.01"))),
         "order_counts": {
             "total": base.count(),
             "active": base.filter(status=OrderStatus.ACTIVE).count(),
             "expired": base.filter(status=OrderStatus.EXPIRED).count(),
             "pipeline": base.filter(status__in=_ORDER_PIPELINE_STATUSES).count(),
-            "draft": drafts.count(),
             "cancelled": base.filter(status=OrderStatus.CANCELLED).count(),
             "rejected": base.filter(status=OrderStatus.REJECTED).count(),
         },
@@ -130,6 +116,7 @@ class OrderViewSet(
             if client is None:
                 return qs.none()
             qs = qs.filter(client=client)
+            qs = qs.exclude(status=OrderStatus.DRAFT)
         if self.action == "list":
             st = self.request.query_params.get("status")
             if st and st != "all":

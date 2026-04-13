@@ -45,6 +45,61 @@ def _build_order_admin_list_search_q(search: str) -> Q:
     return q
 
 
+# Estados entre envío y activación (no incluye borrador ni activa/vencida/cancel/rechazo).
+_ORDER_PIPELINE_STATUSES = (
+    OrderStatus.SUBMITTED,
+    OrderStatus.CLIENT_APPROVED,
+    OrderStatus.ART_APPROVED,
+    OrderStatus.INVOICED,
+    OrderStatus.PAID,
+    OrderStatus.PERMIT_PENDING,
+    OrderStatus.INSTALLATION,
+)
+
+
+def _client_orders_summary_for_list(*, client) -> dict:
+    """
+    Totales globales del cliente para la cabecera de «Mis pedidos» (sin depender de filtros de página).
+    """
+    base = Order.objects.filter(client=client)
+    today = timezone.localdate()
+    soon = today + timedelta(days=30)
+
+    committed = base.exclude(
+        status__in=(
+            OrderStatus.DRAFT,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+        )
+    )
+    total_committed = committed.aggregate(s=Sum("total_amount"))["s"] or Decimal("0")
+
+    orders_ending_soon = (
+        base.filter(
+            status=OrderStatus.ACTIVE,
+            items__start_date__lte=today,
+            items__end_date__gte=today,
+            items__end_date__lte=soon,
+        )
+        .distinct()
+        .count()
+    )
+
+    return {
+        "committed_total_subtotal": str(total_committed.quantize(Decimal("0.01"))),
+        "order_counts": {
+            "total": base.count(),
+            "active": base.filter(status=OrderStatus.ACTIVE).count(),
+            "expired": base.filter(status=OrderStatus.EXPIRED).count(),
+            "pipeline": base.filter(status__in=_ORDER_PIPELINE_STATUSES).count(),
+            "draft": base.filter(status=OrderStatus.DRAFT).count(),
+            "cancelled": base.filter(status=OrderStatus.CANCELLED).count(),
+            "rejected": base.filter(status=OrderStatus.REJECTED).count(),
+        },
+        "orders_ending_within_30_days": orders_ending_soon,
+    }
+
+
 class OrderViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -107,6 +162,20 @@ class OrderViewSet(
         ctx = super().get_serializer_context()
         ctx["request"] = self.request
         return ctx
+
+    def list(self, request, *args, **kwargs):
+        response = super().list(request, *args, **kwargs)
+        if response.status_code != status.HTTP_200_OK:
+            return response
+        if user_is_admin(request.user):
+            return response
+        client = get_marketplace_client(request.user)
+        if client is None:
+            return response
+        payload = response.data
+        if isinstance(payload, dict) and "results" in payload:
+            payload["summary"] = _client_orders_summary_for_list(client=client)
+        return response
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

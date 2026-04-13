@@ -1,6 +1,7 @@
 import re
 
 from django.db.models import Prefetch, Q
+from django.http import HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -116,8 +117,10 @@ class OrderViewSet(
             if client is None:
                 return qs.none()
             qs = qs.filter(client=client)
-            qs = qs.exclude(status=OrderStatus.DRAFT)
-        if self.action == "list":
+            # Solo el listado «Mis pedidos» oculta borradores; checkout debe poder POST …/submit/ sobre el borrador.
+            if self.action == "list":
+                qs = qs.exclude(status=OrderStatus.DRAFT)
+        if self.action in ("list", "export_report"):
             st = self.request.query_params.get("status")
             if st and st != "all":
                 qs = qs.filter(status=st)
@@ -215,6 +218,30 @@ class OrderViewSet(
             )
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["get"], url_path="export-report")
+    def export_report(self, request):
+        """
+        Descarga .xlsx con pedidos y líneas (mismos filtros que el listado: búsqueda y estado).
+        Solo administración del workspace.
+        """
+        if not user_is_admin(request.user):
+            return Response(
+                {"detail": "No tienes permiso para esta acción."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        qs = self.filter_queryset(self.get_queryset())
+        from apps.orders.excel_report import orders_report_excel_bytes
+
+        payload = orders_report_excel_bytes(qs)
+        filename = "reporte_pedidos.xlsx"
+        resp = HttpResponse(
+            payload,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp["Content-Length"] = str(len(payload))
+        return resp
 
     @action(detail=True, methods=["post"], url_path="submit")
     def submit(self, request, pk=None):

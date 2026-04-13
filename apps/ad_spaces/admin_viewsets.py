@@ -27,6 +27,12 @@ class AdSpaceAdminViewSet(AdminModelViewSet):
             )
 
     def perform_create(self, serializer):
+        ws = get_workspace_for_request(self.request)
+        if ws is not None and not ws.can_create_ad_spaces:
+            raise ValidationError(
+                "No se pueden crear tomas en este workspace. "
+                "Si necesitas habilitarlo, contacta a la plataforma."
+            )
         self._assert_center_in_tenant(serializer.validated_data.get("shopping_center"))
         instance = serializer.save()
         apply_ad_space_gallery_from_request(instance, self.request)

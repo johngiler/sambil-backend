@@ -1,4 +1,5 @@
 from django.db.models import Q
+from rest_framework.exceptions import ValidationError
 
 from apps.malls.models import ShoppingCenter
 from apps.malls.serializers import ShoppingCenterSerializer
@@ -16,6 +17,11 @@ class ShoppingCenterAdminViewSet(AdminModelViewSet):
             self.request,
             serializer.validated_data.get("workspace"),
         )
+        if not tw.can_create_shopping_centers:
+            raise ValidationError(
+                "No se pueden crear centros comerciales en este workspace. "
+                "Si necesitas habilitarlo, contacta a la plataforma."
+            )
         serializer.save(workspace=tw)
 
     def perform_update(self, serializer):

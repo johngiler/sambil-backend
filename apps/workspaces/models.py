@@ -121,6 +121,21 @@ class Workspace(TimeStampedActiveModel):
         related_name="+",
         help_text="Primer usuario administrador marketplace de este workspace (referencia de carga de catálogo).",
     )
+    can_create_shopping_centers = models.BooleanField(
+        "Puede crear centros comerciales",
+        default=True,
+        help_text="Si está desactivado, el panel no permite crear CCs (API y UI).",
+    )
+    can_create_ad_spaces = models.BooleanField(
+        "Puede crear tomas",
+        default=True,
+        help_text="Si está desactivado, el panel no permite crear tomas / espacios publicitarios.",
+    )
+    can_create_marketplace_admin_users = models.BooleanField(
+        "Puede crear administradores marketplace",
+        default=True,
+        help_text="Si está desactivado, no se pueden crear ni promover usuarios con rol administrador del panel.",
+    )
 
     class Meta:
         ordering = ["slug"]

@@ -111,6 +111,16 @@ class UserAdminCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"client_id": "Selecciona la empresa para el rol cliente marketplace."}
             )
+        if (
+            role == UserProfile.Role.ADMIN
+            and tw is not None
+            and not tw.can_create_marketplace_admin_users
+        ):
+            raise serializers.ValidationError(
+                {
+                    "role": "No está permitido crear usuarios con rol administrador marketplace en este workspace."
+                }
+            )
         return attrs
 
     def create(self, validated_data):
@@ -193,6 +203,18 @@ class UserAdminUpdateSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"client_id": "Selecciona la empresa para el rol cliente marketplace."}
                 )
+
+        promoting_to_admin = current_role != UserProfile.Role.ADMIN and role_after == UserProfile.Role.ADMIN
+        if (
+            promoting_to_admin
+            and tw is not None
+            and not tw.can_create_marketplace_admin_users
+        ):
+            raise serializers.ValidationError(
+                {
+                    "role": "No está permitido asignar el rol administrador marketplace en este workspace."
+                }
+            )
 
         return attrs
 

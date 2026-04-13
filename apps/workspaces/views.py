@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 
 from apps.users.utils import is_platform_staff, user_is_admin
 from apps.workspaces.serializers import (
+    WorkspaceMeReadSerializer,
     WorkspaceMeUpdateSerializer,
     WorkspacePublicSerializer,
 )
@@ -72,7 +73,7 @@ class MyWorkspaceView(APIView):
         ws, code, body = _resolve_admin_editable_workspace(request)
         if code is not None:
             return Response(body, status=code)
-        ser = WorkspacePublicSerializer(ws, context={"request": request})
+        ser = WorkspaceMeReadSerializer(ws, context={"request": request})
         return Response(ser.data)
 
     def patch(self, request):
@@ -112,5 +113,5 @@ class MyWorkspaceView(APIView):
 
         ws.save()
         ws.refresh_from_db()
-        out = WorkspacePublicSerializer(ws, context={"request": request})
+        out = WorkspaceMeReadSerializer(ws, context={"request": request})
         return Response(out.data)

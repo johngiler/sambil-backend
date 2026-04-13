@@ -52,6 +52,20 @@ class WorkspacePublicSerializer(serializers.ModelSerializer):
         return self._absolute_media(obj, "favicon")
 
 
+class WorkspaceMeReadSerializer(WorkspacePublicSerializer):
+    """
+    Igual que la respuesta pública más flags de capacidad (solo GET/PATCH autenticado admin en /api/me/workspace/).
+    No se expone en /api/workspace/current/ (anónimo).
+    """
+
+    class Meta(WorkspacePublicSerializer.Meta):
+        fields = WorkspacePublicSerializer.Meta.fields + (
+            "can_create_shopping_centers",
+            "can_create_ad_spaces",
+            "can_create_marketplace_admin_users",
+        )
+
+
 class WorkspaceMeUpdateSerializer(serializers.ModelSerializer):
     """Actualización por el admin del owner; `slug` no se expone aquí (solo lectura en otro canal)."""
 

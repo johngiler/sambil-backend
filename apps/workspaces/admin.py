@@ -40,6 +40,17 @@ class WorkspaceAdmin(admin.ModelAdmin):
                 "description": "Marcas de tiempo y usuario de referencia al importar con seed_production_catalog.",
             },
         ),
+        (
+            "Permisos del panel (marketplace)",
+            {
+                "fields": (
+                    "can_create_shopping_centers",
+                    "can_create_ad_spaces",
+                    "can_create_marketplace_admin_users",
+                ),
+                "description": "Si desactivas una opción, la API y el panel bloquean esa acción para los administradores del owner.",
+            },
+        ),
     )
     readonly_fields = (
         "catalog_scc_seeded_at",

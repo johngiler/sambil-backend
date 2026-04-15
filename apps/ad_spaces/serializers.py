@@ -2,6 +2,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from apps.ad_spaces.availability_calendar import year_months_occupied
+from apps.ad_spaces.covers import ad_space_effective_cover_url
 from apps.ad_spaces.models import AdSpace
 from apps.catalog_access import shopping_center_allows_public_catalog
 
@@ -79,16 +80,10 @@ class AdSpaceSerializer(serializers.ModelSerializer):
         return url
 
     def get_cover_image(self, obj):
-        first = (
-            obj.gallery_images.all()
-            .order_by("sort_order", "id")
-            .first()
-        )
-        if first and first.image:
-            return self._absolute_media_url(first.image.url)
-        if obj.cover_image:
-            return self._absolute_media_url(obj.cover_image.url)
-        return None
+        u = ad_space_effective_cover_url(obj)
+        if not u:
+            return None
+        return self._absolute_media_url(u)
 
     def get_gallery_images(self, obj):
         request = self.context.get("request")

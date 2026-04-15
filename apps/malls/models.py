@@ -1,6 +1,7 @@
 from django.db import models
 
 from apps.common.image_webp import ensure_imagefields_webp
+from apps.common.media_layout import UPLOAD_CENTERS_COVERS
 from apps.common.models import TimeStampedActiveModel
 
 
@@ -29,9 +30,10 @@ class ShoppingCenter(TimeStampedActiveModel):
     website = models.URLField(blank=True)
     description = models.TextField(blank=True)
     cover_image = models.ImageField(
-        upload_to="covers/centers/%Y/%m/",
+        upload_to=UPLOAD_CENTERS_COVERS,
         blank=True,
         null=True,
+        help_text="Portada del centro: media/centers/covers/AÑO/MES/ (no mezclar con tomas).",
     )
     on_homepage = models.BooleanField(
         default=True,

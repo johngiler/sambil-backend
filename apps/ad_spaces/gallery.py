@@ -23,6 +23,15 @@ def _validate_uploaded_image(f) -> None:
 
 
 def sync_cover_from_gallery(ad_space) -> None:
+    """
+    Mantiene ``AdSpace.cover_image`` alineado con la primera imagen de la galería.
+
+    La asignación ``cover_image = first.image`` hace que Django guarde una copia bajo
+    ``spaces/covers/%Y/%m/`` (upload_to del campo), distinta de ``spaces/gallery/…``. Es
+    redundante en disco pero evita compartir un único path entre dos ImageField (al borrar
+    una fila de galería se borraría el fichero y la otra referencia quedaría rota). Ver
+    ``apps.ad_spaces.covers``.
+    """
     first = ad_space.gallery_images.order_by("sort_order", "id").first()
     if first:
         ad_space.cover_image = first.image

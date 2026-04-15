@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from apps.ad_spaces.covers import ad_space_effective_cover_url
 from apps.ad_spaces.models import AdSpace
 from apps.catalog_access import shopping_center_allows_public_catalog
 from apps.clients.models import Client
@@ -117,14 +118,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         return out
 
     def get_ad_space_cover_image(self, obj):
-        ad = obj.ad_space
-        first = ad.gallery_images.all().first()
-        if first and first.image:
-            return first.image.url
-        img = ad.cover_image
-        if not img:
-            return None
-        return img.url
+        return ad_space_effective_cover_url(obj.ad_space)
 
 
 class OrderStatusEventSerializer(serializers.ModelSerializer):

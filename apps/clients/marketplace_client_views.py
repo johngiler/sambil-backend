@@ -13,16 +13,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.ad_spaces.availability_calendar import year_months_occupied
+from apps.ad_spaces.covers import ad_space_effective_cover_url
 from apps.ad_spaces.models import AdSpace, AdSpaceImage
-
-
-def _ad_space_cover_url(ad: AdSpace) -> str | None:
-    first = ad.gallery_images.all().first()
-    if first and first.image:
-        return first.image.url
-    if ad.cover_image:
-        return ad.cover_image.url
-    return None
 from apps.ad_spaces.serializers import AdSpaceSerializer
 from apps.catalog_access import shopping_center_allows_public_catalog
 from apps.clients.models import ClientAdSpaceFavorite
@@ -101,7 +93,13 @@ class MyContractsView(APIView):
 
             ad = it.ad_space
             sc = ad.shopping_center
-            cover = _ad_space_cover_url(ad)
+            # Misma forma que `OrderItemSerializer`: galería como lista de `.url` y portada efectiva
+            # (primera galería o `cover_image`), sin mezclar `build_absolute_uri` solo en contratos.
+            gallery_urls = []
+            for row in ad.gallery_images.all():
+                if row.image:
+                    gallery_urls.append(row.image.url)
+            cover = ad_space_effective_cover_url(ad)
             items_out.append(
                 {
                     "id": it.id,
@@ -114,6 +112,7 @@ class MyContractsView(APIView):
                     "ad_space_code": ad.code,
                     "ad_space_title": ad.title,
                     "ad_space_cover_image": cover,
+                    "ad_space_gallery_images": gallery_urls,
                     "shopping_center_name": sc.name if sc else "",
                     "shopping_center_slug": sc.slug if sc else "",
                     "shopping_center_city": sc.city if sc else "",

@@ -1,6 +1,7 @@
 from django.db import models
 
 from apps.common.image_webp import ensure_imagefields_webp
+from apps.common.media_layout import UPLOAD_SPACES_COVERS, UPLOAD_SPACES_GALLERY
 from apps.common.models import TimeStampedActiveModel
 
 
@@ -58,10 +59,10 @@ class AdSpace(TimeStampedActiveModel):
         default=AdSpaceStatus.AVAILABLE,
     )
     cover_image = models.ImageField(
-        upload_to="covers/spaces/%Y/%m/",
+        upload_to=UPLOAD_SPACES_COVERS,
         blank=True,
         null=True,
-        help_text="Primera imagen de la galería (sincronizada al guardar).",
+        help_text="Copia de la primera imagen de galería; media/spaces/covers/AÑO/MES/ (la galería va en spaces/gallery/…).",
     )
     # PDF: zona comercial (Plaza Jardín, pasillo X→Y, etc.)
     venue_zone = models.CharField(max_length=255, blank=True)
@@ -100,7 +101,10 @@ class AdSpaceImage(models.Model):
         on_delete=models.CASCADE,
         related_name="gallery_images",
     )
-    image = models.ImageField(upload_to="spaces/gallery/%Y/%m/")
+    image = models.ImageField(
+        upload_to=UPLOAD_SPACES_GALLERY,
+        help_text="Galería de la toma: media/spaces/gallery/AÑO/MES/ (misma familia «spaces» que portada).",
+    )
     sort_order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:

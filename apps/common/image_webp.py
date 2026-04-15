@@ -1,7 +1,5 @@
 """
-Conversión de imágenes raster a WebP (portadas de CC/tomas y galería).
-
-Usado en save() de modelos y en el comando ``convert_media_to_webp``.
+WebP en servidor: subida y ``save()`` de portadas / galería (Pillow), más ``convert_media_to_webp``.
 """
 
 from __future__ import annotations
@@ -9,10 +7,6 @@ from __future__ import annotations
 import logging
 import os
 from io import BytesIO
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -94,21 +88,19 @@ def ensure_imagefields_webp(instance, field_names: tuple[str, ...], quality: int
             logger.info("webp: omitido (no raster o no soportado): %s", old_name)
             continue
 
-        if "/" in old_name or "\\" in old_name:
-            dir_part = os.path.dirname(old_name.replace("\\", "/"))
-            stem = os.path.splitext(os.path.basename(old_name))[0]
-            new_rel = f"{dir_part}/{stem}.webp" if dir_part else f"{stem}.webp"
-        else:
-            new_rel = f"{os.path.splitext(old_name)[0]}.webp"
+        # Solo el **basename**: si se pasa la ruta completa, Django vuelve a aplicar ``upload_to`` y duplica carpetas.
+        stem = os.path.splitext(os.path.basename(old_name.replace("\\", "/")))[0]
+        new_basename = f"{stem}.webp"
 
         cf = ContentFile(out)
         try:
-            getattr(instance, fname).save(new_rel, cf, save=False)
+            getattr(instance, fname).save(new_basename, cf, save=False)
         except OSError as e:
-            logger.warning("webp: no se pudo guardar %s: %s", new_rel, e)
+            logger.warning("webp: no se pudo guardar %s: %s", new_basename, e)
             continue
 
-        if old_name != new_rel and default_storage.exists(old_name):
+        new_name = getattr(field, "name", None) or ""
+        if old_name != new_name and default_storage.exists(old_name):
             try:
                 default_storage.delete(old_name)
             except OSError as e:

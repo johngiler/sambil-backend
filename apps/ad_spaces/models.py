@@ -1,5 +1,6 @@
 from django.db import models
 
+from apps.common.image_webp import ensure_imagefields_webp
 from apps.common.models import TimeStampedActiveModel
 
 
@@ -83,6 +84,13 @@ class AdSpace(TimeStampedActiveModel):
     def __str__(self):
         return self.code
 
+    def save(self, *args, **kwargs):
+        _webp_fields = ("cover_image",)
+        _uf = kwargs.get("update_fields")
+        if _uf is None or any(f in _uf for f in _webp_fields):
+            ensure_imagefields_webp(self, _webp_fields)
+        return super().save(*args, **kwargs)
+
 
 class AdSpaceImage(models.Model):
     """Imágenes de galería de una toma (ordenadas). La portada es la primera."""
@@ -100,3 +108,10 @@ class AdSpaceImage(models.Model):
 
     def __str__(self):
         return f"{self.ad_space_id}:{self.sort_order}"
+
+    def save(self, *args, **kwargs):
+        _webp_fields = ("image",)
+        _uf = kwargs.get("update_fields")
+        if _uf is None or any(f in _uf for f in _webp_fields):
+            ensure_imagefields_webp(self, _webp_fields)
+        return super().save(*args, **kwargs)

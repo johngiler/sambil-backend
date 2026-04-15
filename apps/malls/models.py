@@ -1,5 +1,6 @@
 from django.db import models
 
+from apps.common.image_webp import ensure_imagefields_webp
 from apps.common.models import TimeStampedActiveModel
 
 
@@ -58,3 +59,10 @@ class ShoppingCenter(TimeStampedActiveModel):
 
     def __str__(self):
         return f"{self.slug} — {self.name}"
+
+    def save(self, *args, **kwargs):
+        _webp_fields = ("cover_image",)
+        _uf = kwargs.get("update_fields")
+        if _uf is None or any(f in _uf for f in _webp_fields):
+            ensure_imagefields_webp(self, _webp_fields)
+        return super().save(*args, **kwargs)

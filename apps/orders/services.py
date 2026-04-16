@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.orders.models import Order, OrderStatus, OrderStatusEvent
 from apps.orders.validators import (
+    MIN_RESERVATION_CALENDAR_MONTHS,
     ad_space_allows_marketplace_reservation,
     contract_meets_min_months,
     hold_expires_at_from_now,
@@ -53,9 +54,13 @@ def submit_draft_order(order: Order, *, actor: AbstractBaseUser | None = None) -
 
     for item in order.items.select_related("ad_space"):
         if not contract_meets_min_months(item.start_date, item.end_date):
+            m = MIN_RESERVATION_CALENDAR_MONTHS
             raise serializers.ValidationError(
                 {
-                    "detail": f"La línea {item.ad_space.code} no cumple el mínimo de 5 meses.",
+                    "detail": (
+                        f"La línea {item.ad_space.code} no cumple el mínimo de "
+                        f"{m} {'mes' if m == 1 else 'meses'} de calendario."
+                    ),
                 }
             )
         if not ad_space_allows_marketplace_reservation(item.ad_space):

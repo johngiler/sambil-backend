@@ -13,6 +13,8 @@ from apps.orders.models import OrderItem, OrderStatus
 
 
 # Órdenes que reservan el espacio en el calendario (no borrador / cancelada / rechazada / vencida)
+MIN_RESERVATION_CALENDAR_MONTHS = 1
+
 PIPELINE_STATUSES: tuple[str, ...] = (
     OrderStatus.SUBMITTED,
     OrderStatus.CLIENT_APPROVED,
@@ -37,7 +39,9 @@ def contract_months_inclusive(start: date, end: date) -> int:
     return (end.year - start.year) * 12 + (end.month - start.month) + 1
 
 
-def contract_meets_min_months(start: date, end: date, min_months: int = 5) -> bool:
+def contract_meets_min_months(
+    start: date, end: date, min_months: int = MIN_RESERVATION_CALENDAR_MONTHS
+) -> bool:
     return contract_months_inclusive(start, end) >= min_months
 
 

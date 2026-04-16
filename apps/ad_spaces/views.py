@@ -7,6 +7,7 @@ from apps.ad_spaces.models import AdSpace
 from apps.ad_spaces.serializers import AdSpaceSerializer
 from apps.ad_spaces.models import AdSpaceStatus
 from apps.orders.validators import (
+    MIN_RESERVATION_CALENDAR_MONTHS,
     contract_meets_min_months,
     order_item_conflicts,
 )
@@ -82,8 +83,15 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
                 status=200,
             )
         if not contract_meets_min_months(start, end):
+            m = MIN_RESERVATION_CALENDAR_MONTHS
             return Response(
-                {"ok": False, "detail": "El período no cumple el mínimo de 5 meses."},
+                {
+                    "ok": False,
+                    "detail": (
+                        f"El período no cumple el mínimo de {m} "
+                        f"{'mes' if m == 1 else 'meses'} de calendario."
+                    ),
+                },
                 status=200,
             )
         if order_item_conflicts(space.pk, start, end):

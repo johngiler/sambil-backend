@@ -15,6 +15,7 @@ from apps.orders.models import (
 )
 from apps.orders.services import log_order_status_transition
 from apps.orders.validators import (
+    MIN_RESERVATION_CALENDAR_MONTHS,
     ad_space_allows_marketplace_reservation,
     contract_meets_min_months,
     line_subtotal,
@@ -315,9 +316,13 @@ class OrderItemWriteSerializer(serializers.Serializer):
                 {"end_date": "La fecha fin debe ser posterior o igual al inicio."}
             )
         if not contract_meets_min_months(start, end):
+            m = MIN_RESERVATION_CALENDAR_MONTHS
             raise serializers.ValidationError(
                 {
-                    "end_date": "El contrato debe cubrir al menos 5 meses de calendario (regla Fase 1)."
+                    "end_date": (
+                        f"El contrato debe cubrir al menos {m} "
+                        f"{'mes' if m == 1 else 'meses'} de calendario."
+                    )
                 }
             )
         ad = data["ad_space"]

@@ -12,8 +12,8 @@ Uso::
     python manage.py seed_demo_data --reset
     python manage.py seed_demo_data --workspace-slug sambil
 
-Requisitos: workspace existente y tomas en catálogo suficientes para colocar contratos (≥5 meses)
-sin solaparse con reservas ya existentes en pipeline.
+Requisitos: workspace existente y tomas en catálogo suficientes para colocar contratos
+según la duración mínima de reserva, sin solaparse con reservas ya existentes en pipeline.
 """
 
 from __future__ import annotations
@@ -31,7 +31,12 @@ from apps.ad_spaces.models import AdSpace
 from apps.clients.models import Client, ClientStatus
 from apps.orders.models import Order, OrderItem, OrderStatus, OrderStatusEvent, OrderPaymentMethod
 from apps.orders.services import log_order_status_transition
-from apps.orders.validators import contract_meets_min_months, line_subtotal, order_item_conflicts
+from apps.orders.validators import (
+    MIN_RESERVATION_CALENDAR_MONTHS,
+    contract_meets_min_months,
+    line_subtotal,
+    order_item_conflicts,
+)
 from apps.workspaces.models import Workspace
 
 # RIF únicos por workspace; si ya existen, se reutilizan los clientes al reejecutar.
@@ -303,7 +308,7 @@ class Command(BaseCommand):
                 start = today + timedelta(days=start_off)
                 end = _contract_end_inclusive(start, n_months)
                 if not contract_meets_min_months(start, end):
-                    end = _contract_end_inclusive(start, 5)
+                    end = _contract_end_inclusive(start, MIN_RESERVATION_CALENDAR_MONTHS)
                 if final_status == OrderStatus.ACTIVE and end < today:
                     start = today - timedelta(days=rng.randint(60, 100))
                     end = _contract_end_inclusive(start, rng.randint(8, 14))

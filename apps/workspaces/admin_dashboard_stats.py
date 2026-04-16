@@ -6,8 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 
-from django.contrib.auth import get_user_model
-from django.db.models import Avg, Count, Max, Min, Q
+from django.db.models import Avg, Count, Max, Min
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework.response import Response
@@ -16,19 +15,17 @@ from rest_framework.views import APIView
 from apps.ad_spaces.models import AdSpace
 from apps.clients.models import Client
 from apps.malls.models import ShoppingCenter
-from apps.orders.models import Order
+from apps.orders.models import Order, OrderItem, OrderStatus
 from apps.users.permissions import IsAdminRole
 from apps.workspaces.admin_dashboard_metrics import _empty_metrics, build_extended_metrics
 from apps.workspaces.tenant import get_workspace_for_request
-
-User = get_user_model()
 
 _EMPTY = {
     "counts": {
         "centers": 0,
         "spaces": 0,
         "clients": 0,
-        "users": 0,
+        "contracts_running": 0,
         "orders": 0,
     },
     "economics": {
@@ -89,13 +86,6 @@ class AdminDashboardStatsView(APIView):
         clients_qs = Client.objects.filter(workspace=ws)
         n_clients = clients_qs.count()
 
-        users_qs = (
-            User.objects.filter(is_staff=False, is_superuser=False)
-            .filter(Q(profile__workspace=ws) | Q(profile__client__workspace=ws))
-            .distinct()
-        )
-        n_users = users_qs.count()
-
         orders_qs = Order.objects.filter(client__workspace=ws)
         n_orders = orders_qs.count()
 
@@ -105,6 +95,13 @@ class AdminDashboardStatsView(APIView):
         ]
 
         today = timezone.localdate()
+        n_contracts_running = OrderItem.objects.filter(
+            order__client__workspace=ws,
+            order__status=OrderStatus.ACTIVE,
+            start_date__lte=today,
+            end_date__gte=today,
+        ).count()
+
         start = today - timedelta(days=29)
         start_dt = timezone.make_aware(datetime.combine(start, time.min))
 
@@ -148,7 +145,7 @@ class AdminDashboardStatsView(APIView):
                     "centers": n_centers,
                     "spaces": n_spaces,
                     "clients": n_clients,
-                    "users": n_users,
+                    "contracts_running": n_contracts_running,
                     "orders": n_orders,
                 },
                 "economics": {

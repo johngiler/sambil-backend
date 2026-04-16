@@ -26,6 +26,7 @@ from apps.orders.guest_checkout import (
     GuestCheckoutEmailCheckView,
     GuestCheckoutView,
 )
+from apps.orders.admin_contracts_view import AdminMarketplaceContractsView
 from apps.orders.views import OrderViewSet
 from apps.users.admin_viewsets import UserAdminViewSet
 from apps.users.views import (
@@ -105,6 +106,11 @@ urlpatterns = [
         "api/admin/dashboard/activity/",
         AdminDashboardActivityView.as_view(),
         name="admin-dashboard-activity",
+    ),
+    path(
+        "api/admin/contracts/",
+        AdminMarketplaceContractsView.as_view(),
+        name="admin-marketplace-contracts",
     ),
     path("api/auth/me/", MeView.as_view(), name="auth-me"),
     path("api/auth/me/password/", MePasswordView.as_view(), name="auth-me-password"),

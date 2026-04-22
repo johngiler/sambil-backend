@@ -29,6 +29,8 @@ cd /home/git/backend   # o donde tengas el repo clonado
 bash scripts/setup.sh
 ```
 
+**Nota (svglib / Cairo):** En `requirements.txt` está fijado `svglib==1.5.1` para que `pip install` no arrastre `pycairo` (hace falta `pkg-config` y `libcairo2-dev` en el servidor si se compila desde fuente). Si algún día subís a `svglib>=1.6`, instalad antes en el servidor algo como: `apt-get install -y pkg-config libcairo2-dev` (y herramientas de build si hace falta).
+
 ### 2. Usuario, código y entorno virtual
 
 - Asegurar `/home/git/backend` con propietario `git:git`.

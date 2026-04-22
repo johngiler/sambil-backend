@@ -15,11 +15,7 @@ from rest_framework.views import APIView
 from apps.catalog_access import shopping_center_allows_public_catalog
 from apps.clients.models import Client, ClientStatus
 from apps.orders.models import Order, OrderItem, OrderPaymentMethod, OrderStatus
-from apps.orders.serializers import (
-    OrderItemWriteSerializer,
-    OrderSerializer,
-    validate_order_receipt_file,
-)
+from apps.orders.serializers import OrderItemWriteSerializer, OrderSerializer
 from apps.orders.services import log_order_status_transition, submit_draft_order
 from apps.users.admin_serializers import revoke_django_privileges
 from apps.users.models import UserProfile
@@ -271,7 +267,6 @@ class GuestCheckoutView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        payment_receipt = None
         payload_in = request.data
         content_type = (request.content_type or "").lower()
         if "multipart/form-data" in content_type:
@@ -290,7 +285,6 @@ class GuestCheckoutView(APIView):
                     {"detail": "El campo «payload» debe ser JSON válido."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            payment_receipt = request.FILES.get("payment_receipt")
 
         ser = GuestCheckoutSerializer(data=payload_in)
         ser.is_valid(raise_exception=True)
@@ -362,8 +356,6 @@ class GuestCheckoutView(APIView):
                 )
 
         try:
-            if payment_receipt is not None:
-                validate_order_receipt_file(payment_receipt)
             with transaction.atomic():
                 order = Order.objects.create(
                     client=client,
@@ -406,17 +398,6 @@ class GuestCheckoutView(APIView):
                     actor_user = user
 
                 submit_draft_order(order, actor=actor_user)
-
-                pm = (data.get("payment_method") or "").strip()
-                update_fields = []
-                if pm:
-                    order.payment_method = pm
-                    update_fields.append("payment_method")
-                if payment_receipt is not None:
-                    order.payment_receipt = payment_receipt
-                    update_fields.append("payment_receipt")
-                if update_fields:
-                    order.save(update_fields=update_fields)
         except serializers.ValidationError as e:
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 

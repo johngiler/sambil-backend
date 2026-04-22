@@ -1,11 +1,11 @@
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.ad_spaces.models import AdSpace
+from apps.ad_spaces.models import AdSpace, AdSpaceStatus
 from apps.ad_spaces.serializers import AdSpaceSerializer
-from apps.ad_spaces.models import AdSpaceStatus
+from apps.malls.models import ShoppingCenterMountingProvider
 from apps.orders.validators import (
     MIN_RESERVATION_CALENDAR_MONTHS,
     contract_meets_min_months,
@@ -59,7 +59,15 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(shopping_center__city="")
             elif city:
                 qs = qs.filter(shopping_center__city__iexact=city)
-        return qs.prefetch_related("gallery_images").order_by("-created_at", "-id")
+        return qs.prefetch_related(
+            "gallery_images",
+            Prefetch(
+                "shopping_center__mounting_providers",
+                queryset=ShoppingCenterMountingProvider.objects.filter(is_active=True).order_by(
+                    "sort_order", "id"
+                ),
+            ),
+        ).order_by("-created_at", "-id")
 
     @action(detail=True, methods=["post"], url_path="check-rental-range")
     def check_rental_range(self, request, pk=None):

@@ -23,6 +23,15 @@ class AdSpaceSerializer(serializers.ModelSerializer):
     status_label = serializers.SerializerMethodField()
     cover_image = serializers.SerializerMethodField()
     gallery_images = serializers.SerializerMethodField()
+    mounting_providers = serializers.SerializerMethodField(read_only=True)
+    municipal_permit_notice = serializers.CharField(
+        source="shopping_center.municipal_permit_notice",
+        read_only=True,
+    )
+    advertising_regulations = serializers.CharField(
+        source="shopping_center.advertising_regulations",
+        read_only=True,
+    )
 
     class Meta:
         model = AdSpace
@@ -55,6 +64,9 @@ class AdSpaceSerializer(serializers.ModelSerializer):
             "production_specs",
             "installation_notes",
             "hem_pocket_top_cm",
+            "mounting_providers",
+            "municipal_permit_notice",
+            "advertising_regulations",
         )
         read_only_fields = ("status",)
 
@@ -70,6 +82,22 @@ class AdSpaceSerializer(serializers.ModelSerializer):
 
     def get_status_label(self, obj):
         return obj.get_status_display()
+
+    def get_mounting_providers(self, obj):
+        sc = obj.shopping_center
+        rows = sc.mounting_providers.filter(is_active=True).order_by("sort_order", "id")
+        return [
+            {
+                "id": p.id,
+                "company_name": p.company_name,
+                "contact_name": p.contact_name,
+                "phone": p.phone,
+                "email": p.email,
+                "rif": p.rif,
+                "notes": p.notes,
+            }
+            for p in rows
+        ]
 
     def _absolute_media_url(self, url: str) -> str:
         if not url:

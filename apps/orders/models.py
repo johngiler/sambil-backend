@@ -18,12 +18,17 @@ class OrderPaymentMethod(models.TextChoices):
 
 
 class OrderStatus(models.TextChoices):
+    """
+    Orden = flujo comercial típico (el valor en BD no depende del orden declarado).
+    Arte aprobado va después de facturada y pagada (subida de artes con pedido pagado).
+    """
+
     DRAFT = "draft", "Borrador"
     SUBMITTED = "submitted", "Enviada"
     CLIENT_APPROVED = "client_approved", "Solicitud aprobada"
-    ART_APPROVED = "art_approved", "Arte aprobado"
     INVOICED = "invoiced", "Facturada"
     PAID = "paid", "Pagada"
+    ART_APPROVED = "art_approved", "Arte aprobado"
     PERMIT_PENDING = "permit_pending", "Permiso alcaldía"
     INSTALLATION = "installation", "Instalación"
     ACTIVE = "active", "Activa"
@@ -66,6 +71,51 @@ class Order(TimeStampedActiveModel):
         unique=True,
         db_index=True,
         help_text="Código único de pedido (#SLUG-ORDER-000001). Se asigna al crear.",
+    )
+    payment_conditions = models.TextField(
+        blank=True,
+        default="",
+        help_text="Condiciones de pago (hoja de negociación).",
+    )
+    negotiation_observations = models.TextField(
+        blank=True,
+        default="",
+        help_text="Observaciones en hoja de negociación (líneas del pedido, texto libre).",
+    )
+    negotiation_sheet_pdf = models.FileField(
+        upload_to="orders/generated/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text="Hoja de negociación generada al aprobar la solicitud.",
+    )
+    municipality_authorization_pdf = models.FileField(
+        upload_to="orders/generated/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text="Carta de autorización para trámite en alcaldía.",
+    )
+    invoice_pdf = models.FileField(
+        upload_to="orders/generated/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text="Factura PDF generada al marcar como facturada.",
+    )
+    negotiation_sheet_signed = models.FileField(
+        upload_to="orders/signed/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text="Hoja de negociación firmada por el cliente.",
+    )
+    invoice_number = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Número o referencia de factura (opcional, en PDF).",
+    )
+    installation_verified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Cuando mercadeo del CC validó la instalación conforme.",
     )
 
     class Meta:
@@ -147,3 +197,63 @@ class OrderItem(TimeStampedActiveModel):
 
     def __str__(self):
         return f"Item {self.pk} for order {self.order_id}"
+
+
+class OrderArtAttachment(TimeStampedActiveModel):
+    """Arte(s) enviado(s) por el cliente para revisión."""
+
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="art_attachments",
+    )
+    order_item = models.ForeignKey(
+        "OrderItem",
+        on_delete=models.CASCADE,
+        related_name="art_attachments",
+        null=True,
+        blank=True,
+        help_text="Línea del pedido (toma) a la que aplica el archivo; obligatorio si el pedido tiene varias líneas.",
+    )
+    file = models.FileField(upload_to="orders/arts/%Y/%m/")
+
+    class Meta:
+        ordering = ["created_at", "id"]
+
+    def __str__(self):
+        return f"Art {self.pk} order {self.order_id}"
+
+
+class OrderInstallationPermit(TimeStampedActiveModel):
+    """Solicitud de permiso de instalación (datos para el CC / alcaldía)."""
+
+    order = models.OneToOneField(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="installation_permit",
+    )
+    mounting_date = models.DateField()
+    installation_company_name = models.CharField(max_length=255)
+    staff_members = models.JSONField(
+        default=list,
+        help_text='Lista: [{"full_name": "...", "id_number": "V-12345678"}]',
+    )
+    notes = models.TextField(blank=True, default="")
+    municipal_reference = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Referencia o expediente municipal si aplica.",
+    )
+    request_pdf = models.FileField(
+        upload_to="orders/installation_permits/%Y/%m/",
+        blank=True,
+        null=True,
+        help_text="PDF generado al enviar la solicitud (correo / expediente interno).",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Permiso instalación pedido {self.order_id}"

@@ -49,6 +49,40 @@ class ShoppingCenter(TimeStampedActiveModel):
         db_index=True,
         help_text="Si el catálogo público de tomas está habilitado para este centro (reservas en marketplace).",
     )
+    lessor_legal_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Razón social del arrendador (Constructora Sambil, C.A., etc.).",
+    )
+    lessor_rif = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="RIF del arrendador en documentos legales.",
+    )
+    municipal_authority_line = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Destinatario carta municipio, ej. «Sres. Alcaldía Municipio Chacao».",
+    )
+    municipal_permit_notice = models.TextField(
+        blank=True,
+        default="",
+        help_text="Aviso en catálogo: el cliente debe gestionar permiso municipal.",
+    )
+    advertising_regulations = models.TextField(
+        blank=True,
+        default="",
+        help_text="Normativas de uso de tomas publicitarias (HTML o texto plano).",
+    )
+    authorization_letter_city = models.CharField(
+        max_length=120,
+        blank=True,
+        default="Caracas",
+        help_text="Ciudad en el encabezado de fecha de la carta al municipio.",
+    )
 
     class Meta:
         ordering = ["listing_order", "slug"]
@@ -68,3 +102,26 @@ class ShoppingCenter(TimeStampedActiveModel):
         if _uf is None or any(f in _uf for f in _webp_fields):
             ensure_imagefields_webp(self, _webp_fields)
         return super().save(*args, **kwargs)
+
+
+class ShoppingCenterMountingProvider(TimeStampedActiveModel):
+    """Empresa autorizada para montaje en un centro (visible en detalle de toma)."""
+
+    shopping_center = models.ForeignKey(
+        ShoppingCenter,
+        on_delete=models.CASCADE,
+        related_name="mounting_providers",
+    )
+    company_name = models.CharField(max_length=255)
+    contact_name = models.CharField(max_length=255, blank=True, default="")
+    phone = models.CharField(max_length=64, blank=True, default="")
+    email = models.EmailField(blank=True, default="")
+    rif = models.CharField(max_length=32, blank=True, default="")
+    notes = models.TextField(blank=True, default="")
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+
+    def __str__(self):
+        return f"{self.company_name} ({self.shopping_center_id})"

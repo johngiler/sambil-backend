@@ -18,7 +18,7 @@ from apps.clients.marketplace_client_views import (
     MyFavoritesView,
 )
 from apps.clients.views import ClientViewSet, MyCompanyView
-from apps.malls.admin_viewsets import ShoppingCenterAdminViewSet
+from apps.malls.admin_viewsets import MountingProviderAdminViewSet, ShoppingCenterAdminViewSet
 from apps.malls.views import ShoppingCenterViewSet
 from apps.orders.guest_checkout import (
     GuestCheckoutClientEmailCheckView,
@@ -48,6 +48,11 @@ router.register(r"clients", ClientViewSet, basename="client")
 router.register(r"orders", OrderViewSet, basename="order")
 
 router.register(r"admin/centers", ShoppingCenterAdminViewSet, basename="admin-center")
+router.register(
+    r"admin/mounting-providers",
+    MountingProviderAdminViewSet,
+    basename="admin-mounting-provider",
+)
 router.register(r"admin/spaces", AdSpaceAdminViewSet, basename="admin-space")
 router.register(r"admin/users", UserAdminViewSet, basename="admin-user")
 

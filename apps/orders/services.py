@@ -22,6 +22,19 @@ AUTO_EXPIRE_NOTE = (
 )
 
 
+def default_invoice_number_for_order(order: Order) -> str:
+    """
+    Número de factura sugerido al pasar a «Facturada» si no se indicó uno.
+    Basado en el código de pedido (#SLUG-ORDER-…) o en el id; recortado a 64 caracteres (campo BD).
+    """
+    code = (order.code or "").strip().replace("#", "").replace("/", "-").replace(" ", "")
+    if code:
+        base = f"FAC-{code}"
+    else:
+        base = f"FAC-{order.pk:06d}"
+    return base[:64]
+
+
 def log_order_status_transition(
     order: Order,
     from_status: str,

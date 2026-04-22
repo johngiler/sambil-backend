@@ -28,6 +28,16 @@ class Client(TimeStampedActiveModel):
         help_text="Identificación fiscal; se puede completar después en Mi empresa.",
     )
     contact_name = models.CharField(max_length=255, blank=True)
+    representative_name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Representante legal o firmante (hoja de negociación, cartas).",
+    )
+    representative_id_number = models.CharField(
+        max_length=32,
+        blank=True,
+        help_text="Cédula de identidad del representante (ej. V-17.311.805).",
+    )
     email = models.EmailField()
     phone = models.CharField(max_length=32, blank=True)
     address = models.TextField(blank=True)

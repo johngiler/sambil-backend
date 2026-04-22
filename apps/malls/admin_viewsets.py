@@ -1,10 +1,29 @@
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from rest_framework.exceptions import ValidationError
 
-from apps.malls.models import ShoppingCenter
-from apps.malls.serializers import ShoppingCenterSerializer
+from apps.malls.models import ShoppingCenter, ShoppingCenterMountingProvider
+from apps.malls.serializers import MountingProviderSerializer, ShoppingCenterSerializer
 from apps.users.base_viewsets import AdminModelViewSet
 from apps.workspaces.tenant import enforce_workspace_for_non_superuser, get_workspace_for_request
+
+
+class MountingProviderAdminViewSet(AdminModelViewSet):
+    """CRUD proveedores de montaje por centro (solo admin)."""
+
+    queryset = ShoppingCenterMountingProvider.objects.all()
+    serializer_class = MountingProviderSerializer
+
+    def get_queryset(self):
+        qs = ShoppingCenterMountingProvider.objects.select_related(
+            "shopping_center", "shopping_center__workspace"
+        ).order_by("shopping_center_id", "sort_order", "id")
+        ws = get_workspace_for_request(self.request)
+        if ws is not None:
+            qs = qs.filter(shopping_center__workspace=ws)
+        cid = self.request.query_params.get("shopping_center")
+        if cid and str(cid).strip().isdigit():
+            qs = qs.filter(shopping_center_id=int(cid))
+        return qs
 
 
 class ShoppingCenterAdminViewSet(AdminModelViewSet):
@@ -52,4 +71,9 @@ class ShoppingCenterAdminViewSet(AdminModelViewSet):
                     | Q(city__icontains=search)
                     | Q(district__icontains=search)
                 )
-        return qs
+        return qs.prefetch_related(
+            Prefetch(
+                "mounting_providers",
+                queryset=ShoppingCenterMountingProvider.objects.order_by("sort_order", "id"),
+            ),
+        )

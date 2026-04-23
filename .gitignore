@@ -9,3 +9,4 @@ config/local_settings.py
 *.log
 .DS_Store
 media/
+static/

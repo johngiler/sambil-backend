@@ -15,6 +15,7 @@ from apps.orders.validators import (
     hold_expires_at_from_now,
     line_subtotal,
     order_item_conflicts,
+    rental_start_allowed_for_marketplace,
 )
 
 AUTO_EXPIRE_NOTE = (
@@ -66,6 +67,15 @@ def submit_draft_order(order: Order, *, actor: AbstractBaseUser | None = None) -
         raise serializers.ValidationError({"detail": "Solo se pueden enviar órdenes en borrador."})
 
     for item in order.items.select_related("ad_space"):
+        if not rental_start_allowed_for_marketplace(item.start_date):
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        "La fecha de inicio no puede caer en un mes pasado ni en el mes en curso. "
+                        "Elige un período que comience desde el próximo mes."
+                    ),
+                }
+            )
         if not contract_meets_min_months(item.start_date, item.end_date):
             m = MIN_RESERVATION_CALENDAR_MONTHS
             raise serializers.ValidationError(

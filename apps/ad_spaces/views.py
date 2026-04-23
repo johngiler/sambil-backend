@@ -1,15 +1,21 @@
 from django.db.models import Count, Prefetch, Q
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from apps.ad_spaces.models import AdSpace, AdSpaceStatus
-from apps.ad_spaces.serializers import AdSpaceSerializer
+from apps.ad_spaces.serializers import (
+    AdSpaceSerializer,
+    CatalogMountingProviderSerializer,
+    MOUNTING_PROVIDERS_PAGE_SIZE,
+)
 from apps.malls.models import ShoppingCenterMountingProvider
 from apps.orders.validators import (
     MIN_RESERVATION_CALENDAR_MONTHS,
     contract_meets_min_months,
     order_item_conflicts,
+    rental_start_allowed_for_marketplace,
 )
 from apps.workspaces.tenant import get_workspace_for_request
 
@@ -19,6 +25,12 @@ _EMPTY_CITY_SENTINEL = "__empty__"
 class CheckRentalRangeSerializer(serializers.Serializer):
     start_date = serializers.DateField()
     end_date = serializers.DateField()
+
+
+class CatalogMountingProvidersPagination(PageNumberPagination):
+    page_size = MOUNTING_PROVIDERS_PAGE_SIZE
+    page_size_query_param = "page_size"
+    max_page_size = 50
 
 
 class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -102,6 +114,17 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
                 },
                 status=200,
             )
+        if not rental_start_allowed_for_marketplace(start):
+            return Response(
+                {
+                    "ok": False,
+                    "detail": (
+                        "No puedes reservar desde un mes pasado ni desde el mes en curso. "
+                        "Elige un inicio a partir del próximo mes."
+                    ),
+                },
+                status=200,
+            )
         if order_item_conflicts(space.pk, start, end):
             title = (space.title or "").strip() or "esta toma"
             return Response(
@@ -112,6 +135,21 @@ class AdSpaceViewSet(viewsets.ReadOnlyModelViewSet):
                 status=200,
             )
         return Response({"ok": True}, status=200)
+
+    @action(detail=True, methods=["get"], url_path="mounting-providers")
+    def mounting_providers(self, request, pk=None):
+        """Proveedores de montaje del centro de la toma, paginados (page_size por defecto 5)."""
+        space = self.get_object()
+        qs = ShoppingCenterMountingProvider.objects.filter(
+            shopping_center_id=space.shopping_center_id,
+            is_active=True,
+        ).order_by("sort_order", "id")
+        paginator = CatalogMountingProvidersPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        ser = CatalogMountingProviderSerializer(
+            page, many=True, context=self.get_serializer_context()
+        )
+        return paginator.get_paginated_response(ser.data)
 
     @action(detail=False, methods=["get"], url_path="location-facets")
     def location_facets(self, request):

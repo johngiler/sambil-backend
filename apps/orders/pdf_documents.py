@@ -29,6 +29,50 @@ IVA_RATE = Decimal("0.16")
 _REPO_ROOT = Path(settings.BASE_DIR).resolve().parent
 _LOGO_SVG = _REPO_ROOT / "images" / "logos" / "logotype.svg"
 
+# Márgenes 2cm + 2cm en SimpleDocTemplate de estos PDFs
+_INNER_W = A4[0] - 4 * cm
+
+
+def _inner_table_width() -> float:
+    """Ancho interior disponible para tablas (A4 menos márgenes laterales de 2cm)."""
+    return _INNER_W
+
+
+def _table_paragraph_styles():
+    """Estilos para celdas con ajuste de línea (evita solapamiento entre columnas)."""
+    base = getSampleStyleSheet()
+    cell = ParagraphStyle(
+        "PdfTableCell",
+        parent=base["Normal"],
+        fontSize=8,
+        leading=10,
+        alignment=TA_LEFT,
+        textColor=colors.HexColor("#1f2937"),
+        wordWrap="LTR",
+        splitLongWords=1,
+    )
+    head = ParagraphStyle(
+        "PdfTableHead",
+        parent=cell,
+        fontName="Helvetica-Bold",
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#111827"),
+    )
+    cell_tight = ParagraphStyle(
+        "PdfTableCellTight",
+        parent=cell,
+        fontSize=7,
+        leading=9,
+    )
+    return cell, head, cell_tight
+
+
+def _p_cell(text: str, style: ParagraphStyle, *, bold: bool = False) -> Paragraph:
+    t = _escape(text or "")
+    if bold:
+        t = f"<b>{t}</b>"
+    return Paragraph(t, style)
+
 
 def _logo_draw(canvas, doc):
     if svg2rlg is None or renderPDF is None or not _LOGO_SVG.is_file():
@@ -64,6 +108,8 @@ def _styles():
         leading=14,
         alignment=TA_JUSTIFY,
         textColor=colors.HexColor("#1f2937"),
+        wordWrap="LTR",
+        splitLongWords=1,
     )
     label = ParagraphStyle(
         "L",
@@ -72,6 +118,8 @@ def _styles():
         leading=12,
         textColor=colors.HexColor("#374151"),
         fontName="Helvetica-Bold",
+        wordWrap="LTR",
+        splitLongWords=1,
     )
     small = ParagraphStyle(
         "S",
@@ -79,6 +127,8 @@ def _styles():
         fontSize=8,
         leading=11,
         textColor=colors.HexColor("#6b7280"),
+        wordWrap="LTR",
+        splitLongWords=1,
     )
     return title, body, label, small
 
@@ -170,7 +220,7 @@ def build_negotiation_sheet_pdf_bytes(*, order) -> bytes:
         row("CONDICIONES DE PAGO", pay_cond),
         row("OBSERVACIONES", obs),
     ]
-    t = Table(data, colWidths=[5.2 * cm, 12.3 * cm])
+    t = Table(data, colWidths=[5 * cm, 12 * cm])
     t.setStyle(
         TableStyle(
             [
@@ -274,13 +324,18 @@ def build_municipality_authorization_pdf_bytes(*, order) -> bytes:
     story.append(Paragraph(body_txt, body_st))
     story.append(Spacer(1, 0.5 * cm))
 
+    cell_st, head_st, tight_st = _table_paragraph_styles()
+    inner = _inner_table_width()
+    # Fracciones que suman 1.0; más ancho a ubicación y observación para evitar solapamiento
+    fr_tipo, fr_cant, fr_med, fr_ubi, fr_obs = 0.18, 0.06, 0.14, 0.34, 0.28
+    tw = [inner * f for f in (fr_tipo, fr_cant, fr_med, fr_ubi, fr_obs)]
     table_data = [
         [
-            "TIPO DE ELEMENTO",
-            "CANT.",
-            "MEDIDAS POR ELEMENTO",
-            "UBICACIÓN",
-            "OBSERVACIÓN",
+            _p_cell("TIPO DE ELEMENTO", head_st, bold=True),
+            _p_cell("CANT.", head_st, bold=True),
+            _p_cell("MEDIDAS POR ELEMENTO", head_st, bold=True),
+            _p_cell("UBICACIÓN", head_st, bold=True),
+            _p_cell("OBSERVACIÓN", head_st, bold=True),
         ]
     ]
     for it in items:
@@ -288,27 +343,28 @@ def build_municipality_authorization_pdf_bytes(*, order) -> bytes:
         h = it.ad_space.height or ""
         medidas = f"{w}×{h}" if w and h else "—"
         tipo = it.ad_space.get_type_display() if hasattr(it.ad_space, "get_type_display") else it.ad_space.type
+        ubic = (it.ad_space.venue_zone or it.ad_space.location_description or it.ad_space.title or "").strip() or "—"
+        obs = (it.ad_space.installation_notes or "").strip() or "—"
         table_data.append(
             [
-                str(tipo),
-                str(it.ad_space.quantity or 1),
-                medidas,
-                (it.ad_space.venue_zone or it.ad_space.title or "")[:40],
-                (it.ad_space.installation_notes or "—")[:60],
+                _p_cell(str(tipo), cell_st),
+                _p_cell(str(it.ad_space.quantity or 1), cell_st),
+                _p_cell(str(medidas), cell_st),
+                _p_cell(ubic, tight_st),
+                _p_cell(obs, tight_st),
             ]
         )
-    tw = [3.2 * cm, 1.2 * cm, 3 * cm, 3.5 * cm, 3.6 * cm]
     t = Table(table_data, colWidths=tw, repeatRows=1)
     t.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 4),
                 ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]
         )
     )
@@ -348,29 +404,56 @@ def build_invoice_pdf_bytes(*, order) -> bytes:
     story.append(Spacer(1, 0.3 * cm))
     story.append(Paragraph(f"<b>Cliente:</b> {_escape(client.company_name)} &nbsp; RIF: {_escape((client.rif or '').strip() or '—')}", body_st))
     story.append(Spacer(1, 0.5 * cm))
-    rows = [["Descripción", "Cant.", "Importe USD"]]
+    cell_st, head_st, _ = _table_paragraph_styles()
+    inv_cell = ParagraphStyle(
+        "InvCell",
+        parent=cell_st,
+        fontSize=9,
+        leading=11,
+    )
+    inv_head = ParagraphStyle("InvHead", parent=head_st, fontSize=9, leading=11)
+    inv_num = ParagraphStyle(
+        "InvNum",
+        parent=inv_cell,
+        alignment=TA_RIGHT,
+    )
+    rows = [
+        [
+            _p_cell("Descripción", inv_head, bold=True),
+            _p_cell("Cant.", inv_head, bold=True),
+            _p_cell("Importe USD", inv_head, bold=True),
+        ]
+    ]
     for it in items:
+        desc = f"{it.ad_space.code} — {it.ad_space.title}"
         rows.append(
             [
-                f"{it.ad_space.code} — {it.ad_space.title}",
-                "1",
-                f"${it.subtotal:,.2f}",
+                _p_cell(desc, inv_cell),
+                _p_cell("1", inv_num),
+                _p_cell(f"${it.subtotal:,.2f}", inv_num),
             ]
         )
-    rows.append(["", "Subtotal", f"${total:,.2f}"])
-    rows.append(["", f"IVA ({int(IVA_RATE * 100)} %)", f"${iva:,.2f}"])
-    rows.append(["", "Total", f"${grand:,.2f}"])
+    rows.append([_p_cell("", inv_cell), _p_cell("Subtotal", inv_num, bold=True), _p_cell(f"${total:,.2f}", inv_num, bold=True)])
+    rows.append(
+        [
+            _p_cell("", inv_cell),
+            _p_cell(f"IVA ({int(IVA_RATE * 100)} %)", inv_num),
+            _p_cell(f"${iva:,.2f}", inv_num),
+        ]
+    )
+    rows.append([_p_cell("", inv_cell), _p_cell("Total", inv_num, bold=True), _p_cell(f"${grand:,.2f}", inv_num, bold=True)])
     t = Table(rows, colWidths=[10 * cm, 3 * cm, 4 * cm])
     t.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
                 ("GRID", (0, 0), (-1, -2), 0.25, colors.HexColor("#e5e7eb")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
                 ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#111827")),
-                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
             ]
         )
     )
@@ -439,7 +522,7 @@ def build_installation_permit_request_pdf_bytes(*, order, permit) -> bytes:
     if notes:
         data.append(row("Notas", notes))
 
-    t = Table(data, colWidths=[5.2 * cm, 12.3 * cm])
+    t = Table(data, colWidths=[5 * cm, 12 * cm])
     t.setStyle(
         TableStyle(
             [
@@ -455,23 +538,27 @@ def build_installation_permit_request_pdf_bytes(*, order, permit) -> bytes:
     story.append(Paragraph("<b>Personal en sitio (cuadrilla)</b>", label_st))
     story.append(Spacer(1, 0.2 * cm))
 
-    staff_rows = [["Nombre completo", "Cédula / documento"]]
+    tc_st, th_st, _ = _table_paragraph_styles()
+    staff_rows = [
+        [
+            _p_cell("Nombre completo", th_st, bold=True),
+            _p_cell("Cédula / documento", th_st, bold=True),
+        ]
+    ]
     for m in staff:
         if not isinstance(m, dict):
             continue
         fn = (m.get("full_name") or "").strip() or "—"
         nid = (m.get("id_number") or "").strip() or "—"
-        staff_rows.append([fn, nid])
+        staff_rows.append([_p_cell(fn, tc_st), _p_cell(nid, tc_st)])
     if len(staff_rows) == 1:
-        staff_rows.append(["—", "—"])
+        staff_rows.append([_p_cell("—", tc_st), _p_cell("—", tc_st)])
 
-    st = Table(staff_rows, colWidths=[10 * cm, 7.5 * cm])
+    st = Table(staff_rows, colWidths=[10 * cm, 7 * cm])
     st.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#d1d5db")),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("LEFTPADDING", (0, 0), (-1, -1), 5),

@@ -140,8 +140,6 @@ def _chain_to_status(final: str) -> list[str]:
     """Secuencia de estados hasta el final deseado (eventos coherentes con `Order.status`)."""
     if final == OrderStatus.DRAFT:
         return [OrderStatus.DRAFT]
-    if final == OrderStatus.REJECTED:
-        return [OrderStatus.DRAFT, OrderStatus.SUBMITTED, OrderStatus.REJECTED]
     if final == OrderStatus.CANCELLED:
         return [
             OrderStatus.DRAFT,
@@ -295,7 +293,7 @@ class Command(BaseCommand):
                     (rng.randint(0, 8), OrderStatus.INSTALLATION, 14, 6),
                     (rng.randint(2, 22), OrderStatus.CANCELLED, 60, 6),
                     (rng.randint(2, 24), OrderStatus.CANCELLED, 90, 5),
-                    (rng.randint(1, 20), OrderStatus.REJECTED, 50, 5),
+                    (rng.randint(1, 20), OrderStatus.CANCELLED, 50, 5),
                 ]
             )
 

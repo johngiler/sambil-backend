@@ -12,7 +12,7 @@ from apps.availability.models import AvailabilityBlock, AvailabilityBlockType
 from apps.orders.models import OrderItem, OrderStatus
 
 
-# Órdenes que reservan el espacio en el calendario (no borrador / cancelada / rechazada / vencida)
+# Órdenes que reservan el espacio en el calendario (no borrador / cancelada / vencida)
 MIN_RESERVATION_CALENDAR_MONTHS = 1
 
 PIPELINE_STATUSES: tuple[str, ...] = (
@@ -90,3 +90,19 @@ def line_subtotal(monthly_price: Decimal, start: date, end: date) -> Decimal:
 
 def hold_expires_at_from_now(hours: int = 72) -> datetime:
     return timezone.now() + timedelta(hours=hours)
+
+
+def first_allowed_monthly_rental_start_date(ref: date | None = None) -> date:
+    """
+    Primer día del primer mes reservable (el mes calendario actual y los anteriores quedan excluidos).
+    """
+    r = ref if ref is not None else timezone.localdate()
+    y, m = r.year, r.month
+    if m == 12:
+        return date(y + 1, 1, 1)
+    return date(y, m + 1, 1)
+
+
+def rental_start_allowed_for_marketplace(start: date, ref: date | None = None) -> bool:
+    """True si la fecha de inicio (típicamente día 1 del mes) no cae en mes pasado ni en el mes en curso."""
+    return start >= first_allowed_monthly_rental_start_date(ref)

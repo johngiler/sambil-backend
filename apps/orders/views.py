@@ -83,7 +83,6 @@ def _client_orders_summary_for_list(*, client) -> dict:
             "expired": base.filter(status=OrderStatus.EXPIRED).count(),
             "pipeline": base.filter(status__in=_ORDER_PIPELINE_STATUSES).count(),
             "cancelled": base.filter(status=OrderStatus.CANCELLED).count(),
-            "rejected": base.filter(status=OrderStatus.REJECTED).count(),
         },
     }
 

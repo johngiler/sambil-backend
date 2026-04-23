@@ -212,13 +212,6 @@ def build_extended_metrics(*, ws, orders_qs, spaces_qs) -> dict:
         .order_by("-c")
     ]
 
-    # —— Rechazo (pedidos en estado rechazada / salieron de borrador) ——
-    n_rejected = orders_qs.filter(status=OrderStatus.REJECTED).count()
-    n_non_draft = orders_qs.exclude(status=OrderStatus.DRAFT).count()
-    rejection_rate_pct = (
-        round(100.0 * n_rejected / n_non_draft, 1) if n_non_draft else None
-    )
-
     # —— Bloqueos manuales activos ——
     n_active_blocks = AvailabilityBlock.objects.filter(
         ad_space__shopping_center__workspace=ws,
@@ -314,8 +307,6 @@ def build_extended_metrics(*, ws, orders_qs, spaces_qs) -> dict:
         "permit_pending_by_city": permit_by_city,
         "orders_cancelled_total": n_cancelled,
         "orders_cancelled_from_status": cancelled_from,
-        "orders_rejected_total": n_rejected,
-        "rejection_rate_pct": rejection_rate_pct,
         "active_availability_blocks": n_active_blocks,
     }
 
@@ -346,7 +337,5 @@ def _empty_metrics():
         "permit_pending_by_city": [],
         "orders_cancelled_total": 0,
         "orders_cancelled_from_status": [],
-        "orders_rejected_total": 0,
-        "rejection_rate_pct": None,
         "active_availability_blocks": 0,
     }

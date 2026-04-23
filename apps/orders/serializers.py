@@ -414,6 +414,19 @@ class OrderAdminPatchSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         new_status = attrs.get("status", self.instance.status)
         if (
+            new_status == OrderStatus.EXPIRED
+            and self.instance.status != OrderStatus.EXPIRED
+        ):
+            raise serializers.ValidationError(
+                {
+                    "status": (
+                        "El estado «Vencida» lo asigna el sistema cuando la última línea del pedido "
+                        "supera su fecha de fin (proceso automático programado). "
+                        "No se puede marcar manualmente."
+                    )
+                }
+            )
+        if (
             new_status == OrderStatus.INVOICED
             and self.instance.status != OrderStatus.INVOICED
             and not self.instance.negotiation_sheet_signed
@@ -423,6 +436,50 @@ class OrderAdminPatchSerializer(serializers.ModelSerializer):
                     "status": (
                         "El cliente debe subir la hoja de negociación firmada antes de pasar "
                         "el pedido a «Facturada»."
+                    )
+                }
+            )
+        if (
+            new_status == OrderStatus.PAID
+            and self.instance.status != OrderStatus.PAID
+            and self.instance.status == OrderStatus.INVOICED
+            and not self.instance.payment_receipt
+        ):
+            raise serializers.ValidationError(
+                {
+                    "status": (
+                        "El cliente debe adjuntar el comprobante de pago desde Mis pedidos antes "
+                        "de pasar el pedido a «Pagada»."
+                    )
+                }
+            )
+        if (
+            new_status == OrderStatus.ART_APPROVED
+            and self.instance.status != OrderStatus.ART_APPROVED
+            and self.instance.status == OrderStatus.PAID
+            and not self.instance.art_attachments.exists()
+        ):
+            raise serializers.ValidationError(
+                {
+                    "status": (
+                        "El cliente debe subir al menos un archivo de arte desde Mis pedidos antes "
+                        "de pasar el pedido a «Arte aprobado»."
+                    )
+                }
+            )
+        if (
+            new_status == OrderStatus.PERMIT_PENDING
+            and self.instance.status != OrderStatus.PERMIT_PENDING
+            and self.instance.status == OrderStatus.ART_APPROVED
+            and not OrderInstallationPermit.objects.filter(
+                order_id=self.instance.pk
+            ).exists()
+        ):
+            raise serializers.ValidationError(
+                {
+                    "status": (
+                        "El cliente debe enviar la solicitud de permiso de instalación desde Mis "
+                        "pedidos antes de pasar el pedido a «Permiso alcaldía»."
                     )
                 }
             )

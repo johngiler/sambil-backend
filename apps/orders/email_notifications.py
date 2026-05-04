@@ -46,6 +46,7 @@ def _workspace_smtp_connection(ws):
     host = (ws.transactional_email_host or "").strip()
     if not host:
         return None
+    # Evita bloqueos largos en connect() (el worker de Gunicorn puede abortar con SystemExit → 500).
     return get_connection(
         backend="django.core.mail.backends.smtp.EmailBackend",
         host=host,
@@ -53,6 +54,7 @@ def _workspace_smtp_connection(ws):
         username=(ws.transactional_email_username or "").strip(),
         password=(ws.transactional_email_password or "").strip(),
         use_tls=bool(ws.transactional_email_use_tls),
+        timeout=25,
     )
 
 

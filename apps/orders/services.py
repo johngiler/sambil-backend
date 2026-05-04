@@ -61,6 +61,13 @@ def log_order_status_transition(
         from apps.orders.email_notifications import try_send_order_status_emails
 
         try_send_order_status_emails(order, from_status or "", to_status)
+    except SystemExit:
+        # Gunicorn puede inyectar SystemExit si el worker aborta durante I/O bloqueante (p. ej. SMTP).
+        logger.warning(
+            "Notificación por correo interrumpida (pedido %s → %s); revisa timeout/firewall SMTP.",
+            order.pk,
+            to_status,
+        )
     except Exception:
         logger.exception(
             "Notificación por correo omitida (pedido %s → %s).",

@@ -57,23 +57,22 @@ def log_order_status_transition(
         note=note or "",
         created_at=created_at if created_at is not None else timezone.now(),
     )
-    try:
-        from apps.orders.email_notifications import try_send_order_status_emails
+    order_id = order.pk
+    from_s = from_status or ""
 
-        try_send_order_status_emails(order, from_status or "", to_status)
-    except SystemExit:
-        # Gunicorn puede inyectar SystemExit si el worker aborta durante I/O bloqueante (p. ej. SMTP).
-        logger.warning(
-            "Notificación por correo interrumpida (pedido %s → %s); revisa timeout/firewall SMTP.",
-            order.pk,
-            to_status,
-        )
-    except Exception:
-        logger.exception(
-            "Notificación por correo omitida (pedido %s → %s).",
-            order.pk,
-            to_status,
-        )
+    def enqueue_status_emails() -> None:
+        try:
+            from apps.orders.tasks import send_order_status_emails_task
+
+            send_order_status_emails_task.delay(order_id, from_s, to_status)
+        except Exception:
+            logger.exception(
+                "No se pudo encolar la notificación por correo (pedido %s → %s).",
+                order_id,
+                to_status,
+            )
+
+    transaction.on_commit(enqueue_status_emails)
     return ev
 
 

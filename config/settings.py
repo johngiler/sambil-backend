@@ -182,6 +182,19 @@ try:
 except ImportError:
     pass
 
+# Celery — correos de pedidos / activación tras `transaction.on_commit`; prueba SMTP en Mi negocio vía worker si no es eager.
+# Sin `CELERY_BROKER_URL`, `CELERY_TASK_ALWAYS_EAGER=True`: las tareas corren en el mismo proceso tras el commit (sigue sin bloquear el commit, pero sí el cierre de la petición si el SMTP es lento).
+CELERY_BROKER_URL = (os.environ.get("CELERY_BROKER_URL") or "").strip()
+CELERY_RESULT_BACKEND = (
+    (os.environ.get("CELERY_RESULT_BACKEND") or "").strip() or CELERY_BROKER_URL or "rpc://"
+)
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "120"))
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "90"))
+CELERY_TASK_EAGER_PROPAGATES = True
+_explicit_eager = (os.environ.get("CELERY_TASK_ALWAYS_EAGER", "").lower() in ("1", "true", "yes"))
+CELERY_TASK_ALWAYS_EAGER = _explicit_eager or (not CELERY_BROKER_URL)
+
 # CORS: en producción, cualquier SPA en `https://{slug}.{TENANT_BASE_DOMAIN}` (Nobis, Sambil, …)
 # sin tener que repetir cada origen en `CORS_ALLOWED_ORIGINS`. Requiere `TENANT_BASE_DOMAIN` (p. ej. publivalla.com).
 if not DEBUG and TENANT_BASE_DOMAIN:

@@ -54,6 +54,7 @@ def _workspace_smtp_connection(ws):
         username=(ws.transactional_email_username or "").strip(),
         password=(ws.transactional_email_password or "").strip(),
         use_tls=bool(ws.transactional_email_use_tls),
+        use_ssl=bool(getattr(ws, "transactional_email_use_ssl", False)),
         timeout=25,
     )
 

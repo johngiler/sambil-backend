@@ -489,7 +489,6 @@ class OrderAdminPatchSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         import logging
 
-        from apps.clients.notifications import notify_client_after_order_client_approved
         from apps.orders.document_generation import (
             generate_invoice_pdf_for_order,
             generate_negotiation_and_municipality_pdfs,
@@ -527,7 +526,20 @@ class OrderAdminPatchSerializer(serializers.ModelSerializer):
                 instance.status == OrderStatus.CLIENT_APPROVED
                 and prev != OrderStatus.CLIENT_APPROVED
             ):
-                notify_client_after_order_client_approved(instance)
+                order_pk = instance.pk
+
+                def enqueue_client_activation() -> None:
+                    try:
+                        from apps.orders.tasks import notify_client_activation_after_approval_task
+
+                        notify_client_activation_after_approval_task.delay(order_pk)
+                    except Exception:
+                        logger.exception(
+                            "No se pudo encolar el correo de activación de cuenta (pedido %s).",
+                            order_pk,
+                        )
+
+                transaction.on_commit(enqueue_client_activation)
                 try:
                     generate_negotiation_and_municipality_pdfs(instance)
                 except Exception as exc:

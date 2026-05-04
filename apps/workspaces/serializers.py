@@ -3,6 +3,31 @@ from rest_framework import serializers
 from apps.workspaces.models import Workspace
 
 
+class WorkspaceTransactionalSmtpTestSerializer(serializers.Serializer):
+    """Entrada para POST /api/me/workspace/test-transactional-smtp/ (solo conexión, sin envío)."""
+
+    transactional_email_host = serializers.CharField(max_length=255)
+    transactional_email_port = serializers.IntegerField(min_value=1, max_value=65535, default=587)
+    transactional_email_use_tls = serializers.BooleanField(default=True)
+    transactional_email_use_ssl = serializers.BooleanField(default=False)
+    transactional_email_username = serializers.CharField(max_length=255, allow_blank=True)
+    transactional_email_password = serializers.CharField(
+        max_length=512, allow_blank=True, required=False, default=""
+    )
+
+    def validate_transactional_email_host(self, value: str) -> str:
+        if not (value or "").strip():
+            raise serializers.ValidationError("Indica el servidor SMTP.")
+        return value
+
+    def validate(self, attrs):
+        if attrs.get("transactional_email_use_tls") and attrs.get("transactional_email_use_ssl"):
+            raise serializers.ValidationError(
+                "No combines TLS (STARTTLS) con SSL implícito; usa uno u otro según el puerto del proveedor."
+            )
+        return attrs
+
+
 class WorkspacePublicSerializer(serializers.ModelSerializer):
     """Branding y metadatos públicos del owner resuelto por la petición."""
 
@@ -68,6 +93,7 @@ class WorkspaceMeReadSerializer(WorkspacePublicSerializer):
             "transactional_email_host",
             "transactional_email_port",
             "transactional_email_use_tls",
+            "transactional_email_use_ssl",
             "transactional_email_username",
             "transactional_email_password_set",
             "transactional_email_from_address",
@@ -97,6 +123,7 @@ class WorkspaceMeUpdateSerializer(serializers.ModelSerializer):
             "transactional_email_host",
             "transactional_email_port",
             "transactional_email_use_tls",
+            "transactional_email_use_ssl",
             "transactional_email_username",
             "transactional_email_from_address",
             "transactional_email_from_name",

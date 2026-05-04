@@ -39,7 +39,12 @@ from apps.users.views import (
 )
 from apps.workspaces.admin_activity_feed import AdminDashboardActivityView
 from apps.workspaces.admin_dashboard_stats import AdminDashboardStatsView
-from apps.workspaces.views import MyWorkspaceView, WorkspaceCurrentView
+from apps.workspaces.views import (
+    MyWorkspaceTransactionalSmtpTestStatusView,
+    MyWorkspaceTransactionalSmtpTestView,
+    MyWorkspaceView,
+    WorkspaceCurrentView,
+)
 
 router = DefaultRouter()
 router.register(r"centers", ShoppingCenterViewSet, basename="center")
@@ -101,6 +106,16 @@ urlpatterns = [
         name="my-favorite-detail",
     ),
     path("api/me/workspace/", MyWorkspaceView.as_view(), name="me-workspace"),
+    path(
+        "api/me/workspace/test-transactional-smtp/status/<str:task_id>/",
+        MyWorkspaceTransactionalSmtpTestStatusView.as_view(),
+        name="me-workspace-test-transactional-smtp-status",
+    ),
+    path(
+        "api/me/workspace/test-transactional-smtp/",
+        MyWorkspaceTransactionalSmtpTestView.as_view(),
+        name="me-workspace-test-transactional-smtp",
+    ),
     path("api/workspace/current/", WorkspaceCurrentView.as_view(), name="workspace-current"),
     path(
         "api/admin/dashboard/stats/",

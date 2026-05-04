@@ -151,6 +151,11 @@ class Workspace(TimeStampedActiveModel):
         "Usar TLS al conectar al SMTP",
         default=True,
     )
+    transactional_email_use_ssl = models.BooleanField(
+        "SSL implícito al conectar al SMTP",
+        default=False,
+        help_text="Conexión cifrada desde el inicio (típico en puerto 465). No combinar con STARTTLS en el mismo servidor.",
+    )
     transactional_email_username = models.CharField(
         "Usuario SMTP",
         max_length=255,

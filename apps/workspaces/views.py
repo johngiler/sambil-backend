@@ -1,3 +1,6 @@
+import logging
+
+from django.conf import settings as django_settings
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -8,8 +11,12 @@ from apps.workspaces.serializers import (
     WorkspaceMeReadSerializer,
     WorkspaceMeUpdateSerializer,
     WorkspacePublicSerializer,
+    WorkspaceTransactionalSmtpTestSerializer,
 )
+from apps.workspaces.smtp_test import run_transactional_smtp_connection_test
 from apps.workspaces.tenant import get_workspace_for_request
+
+logger = logging.getLogger(__name__)
 
 
 def _truthy_form_value(val) -> bool:
@@ -120,3 +127,102 @@ class MyWorkspaceView(APIView):
         ws.refresh_from_db()
         out = WorkspaceMeReadSerializer(ws, context={"request": request})
         return Response(out.data)
+
+
+class MyWorkspaceTransactionalSmtpTestView(APIView):
+    """
+    POST: prueba conexión y autenticación SMTP (sin guardar ni enviar correo).
+
+    - Con worker Celery (CELERY_TASK_ALWAYS_EAGER=False): 202 { queued, task_id }; el resultado se consulta en GET …/status/<task_id>/.
+    - Modo eager (p. ej. sin broker): 200 { ok, detail, technical } en la misma respuesta.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ws, code, body = _resolve_admin_editable_workspace(request)
+        if code is not None:
+            return Response(body, status=code)
+        ser = WorkspaceTransactionalSmtpTestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+        d = ser.validated_data
+        password = (d.get("transactional_email_password") or "").strip()
+        if not password:
+            password = (ws.transactional_email_password or "").strip()
+        if not password:
+            return Response(
+                {
+                    "ok": False,
+                    "detail": "Indica la contraseña SMTP en el formulario o guarda una contraseña en Mi negocio antes de probar.",
+                    "technical": None,
+                },
+                status=status.HTTP_200_OK,
+            )
+        kwargs = dict(
+            host=(d["transactional_email_host"] or "").strip(),
+            port=int(d["transactional_email_port"]),
+            username=(d.get("transactional_email_username") or "").strip(),
+            password=password,
+            use_tls=bool(d["transactional_email_use_tls"]),
+            use_ssl=bool(d["transactional_email_use_ssl"]),
+        )
+        if getattr(django_settings, "CELERY_TASK_ALWAYS_EAGER", True):
+            result = run_transactional_smtp_connection_test(**kwargs)
+            return Response(result, status=status.HTTP_200_OK)
+        try:
+            from apps.workspaces.tasks import workspace_smtp_connection_test_task
+
+            ar = workspace_smtp_connection_test_task.delay(**kwargs)
+            return Response(
+                {"queued": True, "task_id": ar.id},
+                status=status.HTTP_202_ACCEPTED,
+            )
+        except Exception:
+            logger.exception("No se pudo encolar la prueba SMTP; se ejecuta en línea.")
+            result = run_transactional_smtp_connection_test(**kwargs)
+            return Response(result, status=status.HTTP_200_OK)
+
+
+class MyWorkspaceTransactionalSmtpTestStatusView(APIView):
+    """GET: estado/resultado de una prueba SMTP encolada (task_id devuelto en el POST 202)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, task_id: str):
+        ws, code, body = _resolve_admin_editable_workspace(request)
+        if code is not None:
+            return Response(body, status=code)
+        if not (task_id or "").strip():
+            return Response({"detail": "task_id inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        from celery.result import AsyncResult
+
+        r = AsyncResult(task_id.strip())
+        if not r.ready():
+            return Response({"ready": False, "state": r.state})
+        if r.failed():
+            err = r.result
+            tech = repr(err) if err is not None else ""
+            if isinstance(err, BaseException):
+                tech = str(err)
+            return Response(
+                {
+                    "ready": True,
+                    "ok": False,
+                    "detail": "La prueba SMTP falló en el worker.",
+                    "technical": tech or None,
+                },
+                status=status.HTTP_200_OK,
+            )
+        payload = r.result
+        if isinstance(payload, dict):
+            return Response({"ready": True, **payload}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "ready": True,
+                "ok": False,
+                "detail": "Respuesta inesperada del worker.",
+                "technical": str(payload),
+            },
+            status=status.HTTP_200_OK,
+        )

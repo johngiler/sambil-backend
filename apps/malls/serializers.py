@@ -54,6 +54,7 @@ class ShoppingCenterSerializer(serializers.ModelSerializer):
     marketplace_enabled = serializers.SerializerMethodField(read_only=True)
     cover_image_url = serializers.SerializerMethodField(read_only=True)
     mounting_providers = MountingProviderSerializer(many=True, read_only=True)
+    tomas_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = ShoppingCenter
@@ -82,6 +83,7 @@ class ShoppingCenterSerializer(serializers.ModelSerializer):
             "advertising_regulations",
             "authorization_letter_city",
             "mounting_providers",
+            "tomas_count",
             "display_title",
             "marketplace_enabled",
             "is_active",

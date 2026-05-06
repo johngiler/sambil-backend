@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Count, Prefetch, Q
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -91,6 +91,7 @@ class ShoppingCenterAdminViewSet(AdminModelViewSet):
         if ws is not None:
             qs = qs.filter(workspace=ws)
         if self.action == "list":
+            qs = qs.annotate(tomas_count=Count("ad_spaces", distinct=True))
             active = self.request.query_params.get("active", "all")
             if active == "active":
                 qs = qs.filter(is_active=True)

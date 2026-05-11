@@ -24,6 +24,7 @@ def send_mailgun_text_email(
     subject: str,
     text: str,
     html: str | None = None,
+    inline_images: list[tuple[str, bytes, str]] | None = None,
 ) -> bool:
     key = (api_key or "").strip()
     dom = (domain or "").strip()
@@ -43,8 +44,24 @@ def send_mailgun_text_email(
     }
     if (html or "").strip():
         data["html"] = html.strip()
+
+    files: list[tuple[str, tuple[str, bytes, str]]] | None = None
+    if inline_images:
+        files = [
+            ("inline", (name, blob, mime))
+            for name, blob, mime in inline_images
+            if name and blob and mime
+        ]
+        if not files:
+            files = None
+
     try:
-        res = requests.post(url, auth=("api", key), data=data, timeout=25)
+        if files:
+            res = requests.post(
+                url, auth=("api", key), data=data, files=files, timeout=25
+            )
+        else:
+            res = requests.post(url, auth=("api", key), data=data, timeout=25)
         if 200 <= res.status_code < 300:
             return True
         logger.warning("Mailgun send fallo HTTP %s: %s", res.status_code, res.text[:800])

@@ -117,8 +117,9 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Enlaces en correos (activación de cuenta tras aprobar orden). Sin barra final.
-FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://127.0.0.1:3000").strip().rstrip("/")
+# Opcional: URL base única del SPA si no aplica `{slug}.{TENANT_BASE_DOMAIN}` (poco habitual).
+# En lo normal los enlaces de correo usan ``apps.workspaces.tenant.spa_public_base_url(workspace)``.
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "").strip().rstrip("/")
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@localhost")
 

@@ -1,10 +1,19 @@
-"""Correos por cambio de estado de pedido (cuenta SMTP configurada en el workspace)."""
+"""
+Correos transaccionales del marketplace (cambio de estado de pedido, etc.).
+
+**Multitenant:** cada envío usa el ``Workspace`` del pedido (owner / tenant: Sambil, Nobis, …):
+remitente y relay de «Mi negocio», título del marketplace, color de acento, logo raster y
+enlaces al SPA del subdominio de ese workspace. No hay branding ni relay global de plataforma
+en estos mensajes.
+"""
 
 from __future__ import annotations
 
 import logging
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.image import MIMEImage
 
-from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, get_connection
 
 from apps.orders.models import Order, OrderStatus
@@ -13,14 +22,25 @@ from apps.orders.transactional_email_templates import (
     OrderStatusAudience,
     build_order_status_transactional_email,
 )
+from apps.workspaces.email_inline_logo import TENANT_TRANSACTIONAL_EMAIL_LOGO_CID
 from apps.users.models import UserProfile
+from apps.workspaces.tenant import spa_public_base_url
 
 logger = logging.getLogger(__name__)
 
 
-def _order_public_url(order: Order) -> str:
-    base = getattr(settings, "FRONTEND_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
+def _order_client_orders_url(order: Order) -> str:
+    """Vista «Mis pedidos» del marketplace (cuenta cliente)."""
+    ws = getattr(getattr(order, "client", None), "workspace", None)
+    base = spa_public_base_url(ws)
     return f"{base}/cuenta/pedidos"
+
+
+def _order_admin_orders_url(order: Order) -> str:
+    """Sección Pedidos del panel de administración del mismo tenant."""
+    ws = getattr(getattr(order, "client", None), "workspace", None)
+    base = spa_public_base_url(ws)
+    return f"{base}/dashboard/pedidos"
 
 
 def _emails_client_company(order: Order) -> list[str]:
@@ -82,59 +102,123 @@ def _emails_client_and_admins(order: Order) -> list[str]:
     return out
 
 
-def _status_change_recipient_emails(order: Order, actor_id: int | None) -> list[str]:
+def _order_status_broadcast_dispatches(
+    order: Order,
+    *,
+    to_status: str,
+) -> list[tuple[list[str], OrderStatusAudience]]:
     """
-    Quién recibe el aviso de cambio de estado:
-    - Admin marketplace del workspace → solo la empresa cliente (Mi empresa).
-    - Cliente marketplace de ese pedido → solo administradores (Mi perfil), sin el propio actor.
-    - Sin actor (sistema, invitado sin usuario) → cliente y admins (comportamiento amplio).
-    - Actor no clasificable (p. ej. staff de plataforma) → cliente y admins.
+    Sin actor identificable: empresa (enlace a cuenta cliente) y equipo (enlace al panel admin),
+    en envíos separados para que el CTA coincida con el portal de cada destinatario.
+    """
+    ws = order.client.workspace
+    if ws is None:
+        return []
+    client_addrs = _emails_client_company(order)
+    admin_addrs = _emails_marketplace_admins(order, exclude_user_id=None)
+    client_set = {a.strip().lower() for a in client_addrs if (a or "").strip()}
+    admin_only = [
+        a
+        for a in admin_addrs
+        if (a or "").strip() and a.strip().lower() not in client_set
+    ]
+    out: list[tuple[list[str], OrderStatusAudience]] = []
+    if client_addrs:
+        client_audience: OrderStatusAudience = (
+            "client_submitted"
+            if (to_status or "").strip() == OrderStatus.SUBMITTED
+            else "client"
+        )
+        out.append((client_addrs, client_audience))
+    if admin_only:
+        out.append((admin_only, "admin_broadcast"))
+    return out
+
+
+def _order_status_email_dispatches(
+    order: Order,
+    actor_id: int | None,
+    *,
+    to_status: str,
+) -> list[tuple[list[str], OrderStatusAudience]]:
+    """
+    Destinatarios y variante de plantilla por envío (puede haber más de un correo).
+
+    - Admin marketplace del mismo workspace → empresa cliente (plantilla «cliente») y el resto
+      de administradores del owner (plantilla «admin_peers»), sin notificar al propio actor.
+    - Cliente marketplace del pedido → solo otros administradores (plantilla «admins»), sin el actor.
+    - Sin actor o actor no reconocible → empresa (cliente) y admins por separado («admin_broadcast»).
+    - Cliente que envía la solicitud (→ «Enviada») → admins y correo de confirmación a la empresa.
     """
     if actor_id is None:
-        return _emails_client_and_admins(order)
+        return _order_status_broadcast_dispatches(order, to_status=to_status)
 
     try:
         profile = UserProfile.objects.only(
             "role", "workspace_id", "client_id"
         ).get(user_id=actor_id)
     except UserProfile.DoesNotExist:
-        return _emails_client_and_admins(order)
+        return _order_status_broadcast_dispatches(order, to_status=to_status)
 
     ws_id = order.client.workspace_id
     if profile.role == UserProfile.Role.ADMIN and profile.workspace_id == ws_id:
-        return _emails_client_company(order)
+        out: list[tuple[list[str], OrderStatusAudience]] = []
+        client_addrs = _emails_client_company(order)
+        admin_addrs = _emails_marketplace_admins(order, exclude_user_id=actor_id)
+        client_set = {a.strip().lower() for a in client_addrs if (a or "").strip()}
+        admin_addrs = [
+            a
+            for a in admin_addrs
+            if (a or "").strip() and a.strip().lower() not in client_set
+        ]
+        if client_addrs:
+            client_audience: OrderStatusAudience = (
+                "client_submitted"
+                if (to_status or "").strip() == OrderStatus.SUBMITTED
+                else "client"
+            )
+            out.append((client_addrs, client_audience))
+        if admin_addrs:
+            out.append((admin_addrs, "admin_peers"))
+        return out
+
     if (
         profile.role == UserProfile.Role.CLIENT
         and profile.client_id == order.client_id
     ):
-        return _emails_marketplace_admins(order, exclude_user_id=actor_id)
-    return _emails_client_and_admins(order)
+        out: list[tuple[list[str], OrderStatusAudience]] = []
+        admins_only = _emails_marketplace_admins(order, exclude_user_id=actor_id)
+        if admins_only:
+            out.append((admins_only, "admins"))
+        if (to_status or "").strip() == OrderStatus.SUBMITTED:
+            client_addrs = _emails_client_company(order)
+            if client_addrs:
+                out.append((client_addrs, "client_submitted"))
+        return out
+
+    return _order_status_broadcast_dispatches(order, to_status=to_status)
 
 
-def _order_status_email_audience(order: Order, actor_id: int | None) -> OrderStatusAudience:
-    """
-    Alineado con _status_change_recipient_emails: define el tono del asunto y del cuerpo
-    (cliente del pedido, equipo del marketplace, o ambos).
-    """
-    if actor_id is None:
-        return "all"
-
-    try:
-        profile = UserProfile.objects.only(
-            "role", "workspace_id", "client_id"
-        ).get(user_id=actor_id)
-    except UserProfile.DoesNotExist:
-        return "all"
-
-    ws_id = order.client.workspace_id
-    if profile.role == UserProfile.Role.ADMIN and profile.workspace_id == ws_id:
-        return "client"
-    if (
-        profile.role == UserProfile.Role.CLIENT
-        and profile.client_id == order.client_id
-    ):
-        return "admins"
-    return "all"
+def _mime_part_workspace_inline_logo(
+    inline_logo: tuple[bytes, str, str],
+) -> MIMEImage | MIMEBase | None:
+    """Una parte MIME image/webp|png|jpeg|gif con Content-ID del logo del tenant."""
+    data, filename, ctype = inline_logo
+    main, _, sub = ctype.partition("/")
+    if main != "image":
+        return None
+    if sub in ("png", "jpeg", "gif"):
+        part: MIMEImage | MIMEBase = MIMEImage(data, _subtype=sub)
+    elif sub == "webp":
+        part = MIMEBase("image", "webp")
+        part.set_payload(data)
+        encoders.encode_base64(part)
+    else:
+        logger.warning("MIME de logo inline no soportado: %s", ctype)
+        return None
+    part.add_header("Content-ID", f"<{TENANT_TRANSACTIONAL_EMAIL_LOGO_CID}>")
+    part.add_header("Content-Disposition", "inline", filename=filename)
+    return part
 
 
 def _workspace_smtp_connection(ws):
@@ -161,11 +245,16 @@ def send_workspace_transactional_email(
     subject: str,
     body: str,
     html_body: str | None = None,
+    inline_logo: tuple[bytes, str, str] | None = None,
 ) -> bool:
     """
     Envía un correo con la configuración transaccional del workspace (Mi negocio): SMTP o API (Mailgun).
 
     ``body`` es texto plano; ``html_body`` opcional se envía como alternativa multipart / campo HTML en Mailgun.
+
+    ``inline_logo`` es ``(bytes, nombre_archivo, mime)`` del logo del workspace (raster), alineado con el CID
+    del HTML generado por las plantillas transaccionales.
+
     Retorna False si falta remitente, relay incompleto, no hay destinatarios o el envío falló.
     """
     if ws is None:
@@ -187,6 +276,11 @@ def send_workspace_transactional_email(
         api_key = (getattr(ws, "transactional_email_api_key", "") or "").strip()
         domain = (getattr(ws, "transactional_email_mailgun_domain", "") or "").strip()
         region = (getattr(ws, "transactional_email_mailgun_region", "") or "us").strip()
+        mg_inline = (
+            [(inline_logo[1], inline_logo[0], inline_logo[2])]
+            if inline_logo
+            else None
+        )
         return send_mailgun_text_email(
             api_key=api_key,
             domain=domain,
@@ -196,6 +290,7 @@ def send_workspace_transactional_email(
             subject=subject,
             text=body,
             html=html_body,
+            inline_images=mg_inline,
         )
 
     host = (ws.transactional_email_host or "").strip()
@@ -214,6 +309,10 @@ def send_workspace_transactional_email(
         )
         if (html_body or "").strip():
             msg.attach_alternative(html_body.strip(), "text/html")
+        if inline_logo:
+            part = _mime_part_workspace_inline_logo(inline_logo)
+            if part is not None:
+                msg.attach(part)
         msg.send(fail_silently=False)
         return True
     except Exception:
@@ -234,10 +333,11 @@ def try_send_order_status_emails(
     """
     Envía un correo cuando cambia el estado del pedido (SMTP del workspace).
 
-    Destinatarios según quién originó el cambio (``actor_id`` en el evento de historial):
-    administrador marketplace → solo correo de la empresa cliente (Mi empresa); cliente
-    marketplace del pedido → solo correos de administradores (Mi perfil); sin actor o actor
-    no reconocido → empresa y administradores.
+    Destinatarios según ``actor_id``: cliente del pedido notifica a administradores (sin el actor)
+    y, si el estado pasa a «Enviada», también envía confirmación al correo de la empresa;
+    administrador del owner notifica a la empresa cliente y a los demás administradores (sin el actor);
+    sin actor o perfil no reconocible → correo a la empresa (enlace a cuenta) y otro al equipo
+    (enlace al panel de pedidos), si hay destinatarios en cada grupo.
     """
     if from_status == to_status:
         return
@@ -248,8 +348,8 @@ def try_send_order_status_emails(
     if not from_addr:
         return
 
-    recipients = _status_change_recipient_emails(order, actor_id)
-    if not recipients:
+    dispatches = _order_status_email_dispatches(order, actor_id, to_status=to_status)
+    if not dispatches:
         logger.info(
             "Pedido %s → %s: no hay destinatarios con correo (cliente o admins).",
             order.pk,
@@ -268,28 +368,41 @@ def try_send_order_status_emails(
         from_label = from_status or ""
 
     marketplace = (ws.marketplace_title or ws.name or "").strip() or ws.slug
-    audience = _order_status_email_audience(order, actor_id)
     accent = (getattr(ws, "primary_color", None) or "").strip() or None
-    subject, body, html_body = build_order_status_transactional_email(
-        marketplace_title=marketplace,
-        audience=audience,
-        order_code=(order.code or "").strip(),
-        previous_status_label=from_label,
-        new_status_label=to_label,
-        company_name=(order.client.company_name or "").strip(),
-        orders_url=_order_public_url(order),
-        accent_hex=accent,
-    )
 
-    if not send_workspace_transactional_email(
-        ws,
-        to_emails=recipients,
-        subject=subject,
-        body=body,
-        html_body=html_body,
-    ):
+    any_failed = False
+    for recipients, audience in dispatches:
+        if not recipients:
+            continue
+        orders_url = (
+            _order_client_orders_url(order)
+            if audience in ("client", "client_submitted")
+            else _order_admin_orders_url(order)
+        )
+        subject, body, html_body, inline_logo = build_order_status_transactional_email(
+            marketplace_title=marketplace,
+            audience=audience,
+            order_code=(order.code or "").strip(),
+            previous_status_label=from_label,
+            new_status_label=to_label,
+            company_name=(order.client.company_name or "").strip(),
+            orders_url=orders_url,
+            accent_hex=accent,
+            workspace=ws,
+        )
+        if not send_workspace_transactional_email(
+            ws,
+            to_emails=recipients,
+            subject=subject,
+            body=body,
+            html_body=html_body,
+            inline_logo=inline_logo,
+        ):
+            any_failed = True
+
+    if any_failed:
         logger.warning(
-            "No se envió correo de cambio de estado (pedido %s, %s → %s); "
+            "No se envió al menos un correo de cambio de estado (pedido %s, %s → %s); "
             "revisa el relay de correo del workspace o el registro de errores anterior.",
             order.pk,
             from_status,

@@ -3,16 +3,16 @@
 import logging
 from urllib.parse import quote
 
-from django.conf import settings
 from django.core import signing
 
 from apps.clients.models import Client
 from apps.orders.email_notifications import send_workspace_transactional_email
+from apps.orders.models import Order
 from apps.orders.transactional_email_templates import (
     build_client_activation_transactional_email,
 )
-from apps.orders.models import Order
 from apps.users.models import UserProfile
+from apps.workspaces.tenant import spa_public_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,9 @@ def notify_client_after_order_client_approved(order: Order) -> None:
         return
 
     token = build_client_activation_token(client.pk)
-    base = getattr(settings, "FRONTEND_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
-    link = f"{base}/activar-cuenta?token={quote(token)}"
-
     ws = getattr(client, "workspace", None)
+    link = f"{spa_public_base_url(ws)}/activar-cuenta?token={quote(token)}"
+
     contact_line = ""
     if (client.contact_name or "").strip():
         contact_line = f"Hola {(client.contact_name or '').strip()},"
@@ -67,12 +66,13 @@ def notify_client_after_order_client_approved(order: Order) -> None:
     if not marketplace:
         marketplace = "Marketplace"
     accent = (getattr(ws, "primary_color", None) or "").strip() if ws else None
-    subject, body, html_body = build_client_activation_transactional_email(
+    subject, body, html_body, inline_logo = build_client_activation_transactional_email(
         marketplace_title=marketplace,
         company_name=client.company_name or "",
         contact_first_line=contact_line,
         activation_url=link,
         accent_hex=accent,
+        workspace=ws,
     )
 
     to_addr = (client.email or "").strip()
@@ -90,6 +90,7 @@ def notify_client_after_order_client_approved(order: Order) -> None:
         subject=subject,
         body=body,
         html_body=html_body,
+        inline_logo=inline_logo,
     ):
         logger.warning(
             "No se envió correo de activación para cliente %s (orden %s). "

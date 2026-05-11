@@ -9,6 +9,7 @@ Resolución de owner (Workspace) por petición y reglas de aislamiento SaaS.
 
 from __future__ import annotations
 
+import os
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -116,6 +117,39 @@ def get_default_workspace_safely() -> Workspace | None:
     if ws:
         return ws
     return Workspace.objects.filter(is_active=True).order_by("id").first()
+
+
+def spa_public_base_url(ws: Workspace | None) -> str:
+    """
+    Origen público del SPA (sin ruta final) para enlaces en correos y similares.
+
+    Usa el **slug del workspace** y el mismo criterio de apex que la resolución de tenant:
+    - Con ``TENANT_BASE_DOMAIN`` (p. ej. ``publivalla.com``): ``https://{slug}.{apex}`` (esquema
+      configurable con ``FRONTEND_URL_SCHEME``, por defecto ``https``).
+    - En DEBUG sin apex en env: ``http://{slug}.localhost:{FRONTEND_DEV_PORT}`` (puerto por defecto 3000).
+    - Si no hay apex posible (poco habitual): ``FRONTEND_BASE_URL`` del entorno, si está definido;
+      si no, ``http://{slug}.localhost:3000`` como último recurso.
+    """
+    slug = ""
+    if ws is not None and (getattr(ws, "slug", None) or "").strip():
+        slug = str(ws.slug).strip().lower()
+    else:
+        slug = default_workspace_slug()
+
+    apex = _tenant_apex_for_resolution()
+    if apex:
+        if apex == "localhost":
+            port = (os.environ.get("FRONTEND_DEV_PORT") or "3000").strip() or "3000"
+            return f"http://{slug}.localhost:{port}".rstrip("/")
+        scheme = (os.environ.get("FRONTEND_URL_SCHEME") or "https").strip().lower()
+        if scheme not in ("http", "https"):
+            scheme = "https"
+        return f"{scheme}://{slug}.{apex}".rstrip("/")
+
+    fb = (getattr(settings, "FRONTEND_BASE_URL", None) or "").strip().rstrip("/")
+    if fb:
+        return fb
+    return f"http://{slug}.localhost:3000".rstrip("/")
 
 
 def get_workspace_for_request(request) -> Workspace | None:

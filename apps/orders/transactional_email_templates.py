@@ -4,32 +4,31 @@ Plantillas HTML para correos transaccionales (pedidos, activación).
 Variables expuestas al contenido: solo datos útiles para quien recibe el correo
 (referencia humana del pedido, nombres legibles, estados, enlace de acción).
 Sin IDs internos ni jerga técnica en el cuerpo visible.
+
+El logotipo en cabecera usa el branding del ``workspace`` (raster en ``logo`` / ``logo_mark``)
+como adjunto inline con CID; si solo hay SVG u otros formatos, se muestra el nombre del marketplace en texto.
 """
 
 from __future__ import annotations
 
-import base64
 import html
 import re
-import urllib.parse
-from pathlib import Path
 from typing import Literal
 
-from django.conf import settings
+from apps.workspaces.email_inline_logo import (
+    TENANT_TRANSACTIONAL_EMAIL_LOGO_CID,
+    prepare_workspace_email_logo_for_inline,
+)
 
-OrderStatusAudience = Literal["client", "admins", "all"]
-
-_MODULE_DIR = Path(__file__).resolve().parent
-_BUNDLED_LOGO_SVG = _MODULE_DIR / "pdf_branding" / "logotype.svg"
-_BUNDLED_LOGO_EMAIL_PNG = _MODULE_DIR / "pdf_branding" / "logotype_email.png"
-_REPO_ROOT = Path(settings.BASE_DIR).resolve().parent
-_REPO_LOGO_SVG = _REPO_ROOT / "images" / "logos" / "logotype.svg"
-_REPO_LOGO_EMAIL_PNG = _REPO_ROOT / "images" / "logos" / "logotype_email.png"
+OrderStatusAudience = Literal[
+    "client",
+    "client_submitted",
+    "admins",
+    "admin_peers",
+    "admin_broadcast",
+]
 
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?([0-9a-fA-F]{2})?$")
-
-# Cache en proceso: el `src` del logo no cambia hasta redeploy / cambio de archivo.
-_cached_logotype_img_src: str | None | bool = False  # False = aún no calculado
 
 
 def _safe(s: str) -> str:
@@ -43,46 +42,6 @@ def _cta_background_hex(ws_primary: str | None) -> str:
     return "#18181b"
 
 
-def _read_sambil_logotype_img_src() -> str | None:
-    """
-    Logo Sambil para correo: PNG en base64 (Gmail/Apple Mail suelen bloquear SVG en data:).
-
-    El PNG es un **archivo versionado** (`logotype_email.png`), generado offline cuando cambia
-    el SVG de marca; en runtime solo se lee y se codifica (una vez por proceso, con caché).
-    """
-    global _cached_logotype_img_src
-    if _cached_logotype_img_src is not False:
-        return _cached_logotype_img_src if isinstance(_cached_logotype_img_src, str) else None
-
-    out: str | None = None
-    for png_path in (_BUNDLED_LOGO_EMAIL_PNG, _REPO_LOGO_EMAIL_PNG):
-        if png_path.is_file():
-            try:
-                raw = png_path.read_bytes()
-            except OSError:
-                continue
-            if raw:
-                b64 = base64.standard_b64encode(raw).decode("ascii")
-                out = f"data:image/png;base64,{b64}"
-                break
-
-    if out is None:
-        for svg_path in (_BUNDLED_LOGO_SVG, _REPO_LOGO_SVG):
-            if svg_path.is_file():
-                try:
-                    text = svg_path.read_text(encoding="utf-8")
-                except OSError:
-                    continue
-                out = (
-                    "data:image/svg+xml;charset=utf-8,"
-                    + urllib.parse.quote(text, safe="")
-                )
-                break
-
-    _cached_logotype_img_src = out
-    return out
-
-
 def _render_transactional_shell(
     *,
     document_title: str,
@@ -93,13 +52,18 @@ def _render_transactional_shell(
     cta_label: str,
     footer_note: str,
     accent_hex: str,
+    has_tenant_logo_inline: bool,
+    tenant_logo_alt: str,
 ) -> str:
-    logo = _read_sambil_logotype_img_src()
+    alt = _safe(tenant_logo_alt or "Marketplace")
     logo_block = (
-        f'<img src="{logo}" width="200" alt="Sambil" '
+        f'<img src="cid:{TENANT_TRANSACTIONAL_EMAIL_LOGO_CID}" width="200" alt="{alt}" '
         'style="display:block;margin:0 auto;max-width:200px;height:auto;border:0;outline:none;text-decoration:none;">'
-        if logo
-        else '<span style="font:700 18px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#18181b;">Sambil</span>'
+        if has_tenant_logo_inline
+        else (
+            '<span style="font:700 18px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#18181b;">'
+            f"{alt}</span>"
+        )
     )
 
     rows_html = ""
@@ -179,9 +143,13 @@ def build_order_status_transactional_email(
     company_name: str,
     orders_url: str,
     accent_hex: str | None,
-) -> tuple[str, str, str]:
+    workspace,
+) -> tuple[str, str, str, tuple[bytes, str, str] | None]:
     """
-    Construye asunto, cuerpo texto plano y HTML para aviso de cambio de estado.
+    Construye asunto, cuerpo texto plano, HTML y datos del logo inline (o ``None``).
+
+    ``workspace`` determina el logotipo del tenant en el HTML y el cuarto valor devuelto
+    (bytes + nombre + MIME) para adjuntarlo al envío.
 
     Variables de negocio (todas cadenas legibles):
     - marketplace_title, order_code (vacío si aún no hay código público),
@@ -208,6 +176,24 @@ def build_order_status_transactional_email(
             "Este mensaje es una notificación automática del marketplace. "
             "Si no esperabas este correo, revisa la actividad de tu cuenta."
         )
+    elif audience == "client_submitted":
+        subject = f"{mp}: recibimos tu solicitud"
+        headline = "Solicitud enviada"
+        lead = (
+            "Ya recibimos tu solicitud en el marketplace. El equipo la revisará; "
+            "si necesitan algún dato adicional, se pondrán en contacto contigo. "
+            "Puedes consultar el estado del pedido cuando quieras desde tu cuenta. "
+            "Gracias por tu paciencia mientras avanzamos en el proceso."
+        )
+        rows = [
+            ("Estado actual", new_l),
+        ]
+        if code:
+            rows.insert(0, ("Referencia", code))
+        footer = (
+            "Este mensaje confirma que tu envío quedó registrado. "
+            "Si no realizaste esta solicitud, revisa la actividad de tu cuenta."
+        )
     elif audience == "admins":
         subject = f"{mp}: pedido de {company} — «{new_l}»"
         headline = "Cambio de estado en un pedido"
@@ -226,7 +212,25 @@ def build_order_status_transactional_email(
             "Notificación para el equipo del marketplace. "
             "Revisa el detalle en el panel si necesitas tomar acción."
         )
-    else:
+    elif audience == "admin_peers":
+        subject = f"{mp}: pedido de {company} — «{new_l}»"
+        headline = "Cambio de estado en un pedido"
+        lead = (
+            f"Otro administrador del marketplace actualizó el flujo del pedido de «{company}». "
+            f"El estado actual es «{new_l}»."
+        )
+        rows = [
+            ("Empresa", company),
+            ("Estado anterior", prev_l),
+            ("Estado actual", new_l),
+        ]
+        if code:
+            rows.insert(1, ("Referencia del pedido", code))
+        footer = (
+            "Notificación para el equipo del marketplace. "
+            "Revisa el detalle en el panel si necesitas tomar acción."
+        )
+    elif audience == "admin_broadcast":
         subject = f"{mp}: actualización de pedido — «{new_l}»"
         headline = "Actualización de un pedido"
         lead = (
@@ -241,8 +245,24 @@ def build_order_status_transactional_email(
         if code:
             rows.insert(1, ("Referencia del pedido", code))
         footer = "Notificación automática del sistema de pedidos."
+    else:
+        raise ValueError(f"audience de correo de pedido no soportada: {audience!r}")
 
-    cta_label = "Ir a mis pedidos"
+    cta_label = (
+        "Ir a mis pedidos"
+        if audience in ("client", "client_submitted")
+        else "Ir al panel de pedidos"
+    )
+    inline_logo = prepare_workspace_email_logo_for_inline(workspace)
+    brand_alt = (
+        (
+            (getattr(workspace, "marketplace_title", None) or getattr(workspace, "name", None) or "")
+            .strip()
+            if workspace is not None
+            else ""
+        )
+        or mp
+    )
     html_body = _render_transactional_shell(
         document_title=subject,
         headline=headline,
@@ -252,6 +272,8 @@ def build_order_status_transactional_email(
         cta_label=cta_label,
         footer_note=footer,
         accent_hex=accent,
+        has_tenant_logo_inline=inline_logo is not None,
+        tenant_logo_alt=brand_alt,
     )
 
     lines = [
@@ -272,7 +294,7 @@ def build_order_status_transactional_email(
         ]
     )
     text_body = "\n".join(lines)
-    return subject, text_body, html_body
+    return subject, text_body, html_body, inline_logo
 
 
 def build_client_activation_transactional_email(
@@ -282,8 +304,9 @@ def build_client_activation_transactional_email(
     contact_first_line: str,
     activation_url: str,
     accent_hex: str | None,
-) -> tuple[str, str, str]:
-    """Correo de activación tras aprobación (misma envoltura visual)."""
+    workspace,
+) -> tuple[str, str, str, tuple[bytes, str, str] | None]:
+    """Correo de activación tras aprobación (misma envoltura visual y logo del ``workspace``)."""
     mp = (marketplace_title or "").strip() or "Marketplace"
     company = (company_name or "").strip() or "tu empresa"
     accent = _cta_background_hex(accent_hex)
@@ -303,6 +326,16 @@ def build_client_activation_transactional_email(
         "Este mensaje lo envía el sistema de notificaciones del marketplace."
     )
 
+    inline_logo = prepare_workspace_email_logo_for_inline(workspace)
+    brand_alt = (
+        (
+            (getattr(workspace, "marketplace_title", None) or getattr(workspace, "name", None) or "")
+            .strip()
+            if workspace is not None
+            else ""
+        )
+        or mp
+    )
     html_body = _render_transactional_shell(
         document_title=subject,
         headline=headline,
@@ -312,7 +345,9 @@ def build_client_activation_transactional_email(
         cta_label="Crear contraseña",
         footer_note=footer,
         accent_hex=accent,
+        has_tenant_logo_inline=inline_logo is not None,
+        tenant_logo_alt=brand_alt,
     )
 
     text_lines = [headline, "", lead, "", f"Crear contraseña: {activation_url}", "", footer]
-    return subject, "\n".join(text_lines), html_body
+    return subject, "\n".join(text_lines), html_body, inline_logo
